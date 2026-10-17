@@ -1,5 +1,9 @@
-# Reusable workflow (pipepath/.github). Runs this repository's verifier copy against the caller, and runs
-# gitleaks over the caller's full history from code the caller cannot edit (layer 3 of the secret defences).
+# Reusable workflow (pipepath/.github, a public repository). Runs this repository's verifier copy against the
+# caller, and runs gitleaks over the caller's full history with the central config (layer 3 of the secret
+# defences). The caller's own .gitleaks.toml is never read by gitleaks: `gitleaks_config.py` copies only its
+# allowlist entries that pass the verifier's rules into the config the scan uses. Everything that runs comes
+# from the checkout of this repository at the called workflow's commit; nothing from the caller is
+# interpolated into a `run:` line, and Python runs isolated (`-I`) so a caller file cannot shadow a module.
 name: repo-standards
 on:
   workflow_call:
@@ -14,9 +18,8 @@ jobs:
         with:
           path: repo
           persist-credentials: false
-      # Prerequisite: the caller's GITHUB_TOKEN is scoped to the caller repository, so
-      # pipepath/.github must be readable by it: either a public repository (it holds no
-      # secrets) or a read-only app token. The plan that creates the repository decides which.
+      # Prerequisite: the caller's GITHUB_TOKEN is scoped to the caller repository, so pipepath/.github
+      # must be readable by it. It is a public repository (it holds no secrets), so no token is needed.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: pipepath/.github
@@ -24,7 +27,7 @@ jobs:
           path: central
           persist-credentials: false
       - name: verify
-        run: python3 central/repo-standards/verify.py repo --version "$(cat central/repo-standards/VERSION)"
+        run: python3 -I central/repo-standards/verify.py repo --version "$(cat central/repo-standards/VERSION)"
   gitleaks:
     runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' && vars.PIPEPATH_RUNNER) || '"ubuntu-24.04"') }}
     timeout-minutes: 10
@@ -34,5 +37,34 @@ jobs:
           path: repo
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pipepath/.github
+          ref: ${{ job.workflow_sha }}
+          path: central
+          persist-credentials: false
+      - name: central config
+        run: python3 -I central/repo-standards/gitleaks_config.py repo > "$RUNNER_TEMP/gitleaks.toml"
+      # Neutralize the caller's own scan controls. gitleaks auto-loads <source>/.gitleaksignore even when
+      # --gitleaks-ignore-path points elsewhere, so the working-tree copy is removed (the scan reads git
+      # history, not the working tree) and the flag points at an empty file as well. A `* -diff` or `binary`
+      # .gitattributes in the caller makes `git log -p` omit patches, so the highest-precedence attributes
+      # file of the checkout forces diffs on. Trade-off: `* diff` also makes `git log -p` print binary files in
+      # full, so the scan takes more scan time and may report extra findings; it errs on the side of reporting
+      # (fail closed).
+      - name: neutralize caller scan controls
+        run: |
+          rm -rf repo/.gitleaksignore
+          : > "$RUNNER_TEMP/gitleaks.ignore"
+          mkdir -p repo/.git/info
+          printf '* diff\n' > repo/.git/info/attributes
+      # Inline `gitleaks:allow` comments are ignored (--ignore-gitleaks-allow): a false positive needs an anchored
+      # allowlist entry. The container receives no host environment (no -e, no --env-file), and an explicit --config wins over
+      # GITLEAKS_CONFIG and GITLEAKS_CONFIG_TOML anyway. The source is the explicit `git /repo`, the history is
+      # every ref the checkout fetched (--full-history --all, what gitleaks uses by default, stated here), and
+      # the workflow has no inputs: the caller checkout is the event's commit and the central checkout is
+      # pinned to the called workflow's commit. On a containerized runner that talks to a host Docker daemon,
+      # the $RUNNER_TEMP and $PWD/repo mounts may not exist on the daemon host: the scan then fails closed
+      # (gitleaks cannot read --config or the repository) instead of running with another config.
       - name: gitleaks
-        run: docker run --rm -v "$PWD/repo:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f git /repo --redact --verbose
+        run: docker run --rm -v "$PWD/repo:/repo" -v "$RUNNER_TEMP/gitleaks.toml:/central-gitleaks.toml:ro" -v "$RUNNER_TEMP/gitleaks.ignore:/central-gitleaks.ignore:ro" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f git /repo --redact --verbose --config /central-gitleaks.toml --gitleaks-ignore-path /central-gitleaks.ignore --ignore-gitleaks-allow --log-opts="--full-history --all"

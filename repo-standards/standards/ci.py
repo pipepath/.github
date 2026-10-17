@@ -30,7 +30,7 @@ BLOCK_SCALAR = re.compile(r"^[|>](?:[+-]\d?|\d[+-]?)?$")
 ALIAS_VALUE = re.compile(r"^[&*][A-Za-z_][\w-]*(?:\s|$)")
 JOBS_KEY = re.compile(r"""^['"]?jobs['"]?\s*:(.*)$""")
 # A quoted spelling of a key this checker relies on: YAML-equal to the plain key, invisible to KEY_VALUE.
-QUOTED_KEY = re.compile(r"""^['"](?:uses|run|runs-on|needs|continue-on-error|if|steps|with|shell|strategy|env)['"]\s*:""")
+QUOTED_KEY = re.compile(r"""^['"](?:uses|run|runs-on|needs|continue-on-error|if|steps|with|shell|strategy|env|secrets)['"]\s*:""")
 
 JOB_SAFE_IF = {"always()", "success()", "true"}
 NOT_SET = {"", "false"}
@@ -618,6 +618,8 @@ def _caller_problem(wf):
     if not good:
         return ("no job calls pipepath/.github/.github/workflows/repo-standards.yml pinned by a 40-hex SHA with a "
                 "version comment (without `if:` or continue-on-error)")
+    if any("secrets" in j["keys"] for _, j in callers):
+        return "the caller job must not pass `secrets:` (including `secrets: inherit`) to the central workflow"
     return _trigger_problem(wf)
 
 

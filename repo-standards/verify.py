@@ -10,11 +10,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from standards import ci, docs  # noqa: E402
+from standards import ci, docs, gitleaks  # noqa: E402
 from standards.report import Report  # noqa: E402
 
 CHECKS = [docs.check_files, docs.check_lengths, docs.check_first_line, docs.check_docs_map, docs.check_links,
-          docs.check_process_words, docs.check_mermaid, ci.check_workflows, ci.check_pr_template]
+          docs.check_process_words, docs.check_mermaid, ci.check_workflows, ci.check_pr_template,
+          gitleaks.check_gitleaks_allowlist]
 
 
 def run(root, version=None):
