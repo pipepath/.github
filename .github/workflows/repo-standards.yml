@@ -1,0 +1,38 @@
+# Reusable workflow (pipepath/.github). Runs this repository's verifier copy against the caller, and runs
+# gitleaks over the caller's full history from code the caller cannot edit (layer 3 of the secret defences).
+name: repo-standards
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' && vars.PIPEPATH_RUNNER) || '"ubuntu-24.04"') }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repo
+          persist-credentials: false
+      # Prerequisite: the caller's GITHUB_TOKEN is scoped to the caller repository, so
+      # pipepath/.github must be readable by it: either a public repository (it holds no
+      # secrets) or a read-only app token. The plan that creates the repository decides which.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pipepath/.github
+          ref: ${{ job.workflow_sha }}
+          path: central
+          persist-credentials: false
+      - name: verify
+        run: python3 central/repo-standards/verify.py repo --version "$(cat central/repo-standards/VERSION)"
+  gitleaks:
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' && vars.PIPEPATH_RUNNER) || '"ubuntu-24.04"') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repo
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks
+        run: docker run --rm -v "$PWD/repo:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f git /repo --redact --verbose
