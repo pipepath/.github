@@ -6,16 +6,21 @@ allowed set. Every table must also be narrow: `paths` anchored with `^...$`, at 
 `regexes` or `targetRules`, and `condition = "AND"` when `paths` is combined with `commits`, `regexes` or
 `stopwords`. Paths and regexes may not be wildcards (`.*`, `.+`). Every key line must parse on its own
 as exactly one allowed key, so no value spans lines. `[extend]`, `[[rules]]`, `[allowlist]`, other tables
-and top-level keys are errors.
+and top-level keys are errors, as are wrongly typed values and line-break characters other than LF.
 Usage: python3 -I gitleaks/check_allow.py [directory]     lint a directory (default: gitleaks/allow)
        python3 -I gitleaks/check_allow.py --list [dir]    print the file names the linter would lint
 """
+import re
 import sys
 import tomllib
 from pathlib import Path
 
 KEYS = ("description", "condition", "commits", "paths", "regexes", "regexTarget", "stopwords", "targetRules")
-WILDCARD_REGEXES = {"", ".*", ".+", "^.*$", "^.+$"}
+WILDCARD_REGEXES = {"", "|", ".*", ".+", ".{0,}", "^.*$", "^.+$", "^.{0,}$"}
+STRING_KEYS = ("description", "condition", "regexTarget")
+LIST_KEYS = ("paths", "regexes", "commits", "stopwords", "targetRules")
+# Characters some line splitters treat as a line break and others do not, plus a bare CR.
+LINE_BREAKS = re.compile("\r(?!\n)|[\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]")
 
 
 def line_error(line):
@@ -31,6 +36,15 @@ def line_error(line):
 
 def table_errors(table):
     problems = []
+    for key in STRING_KEYS:
+        if key in table and not isinstance(table[key], str):
+            problems.append(f"{key} must be a string")
+    for key in LIST_KEYS:
+        value = table.get(key)
+        if key in table and not (isinstance(value, list) and value and all(isinstance(v, str) and v for v in value)):
+            problems.append(f"{key} must be a non-empty list of non-empty strings")
+    if problems:
+        return problems
     paths = table.get("paths")
     if not isinstance(paths, list) or not paths:
         problems.append("missing paths")
@@ -53,7 +67,13 @@ def table_errors(table):
 def lint(path):
     errors = []
     in_table = False
-    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as error:
+        return [f"{path.name}: not UTF-8: {error}"]
+    if LINE_BREAKS.search(text):
+        return [f"{path.name}: contains a bare CR, VT, FF, NEL, U+2028 or U+2029 (use plain LF line breaks)"]
+    for number, raw in enumerate(text.split("\n"), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -67,7 +87,7 @@ def lint(path):
     if errors:
         return errors
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as error:
         return [f"{path.name}: invalid TOML: {error}"]
     tables = data.get("allowlists")

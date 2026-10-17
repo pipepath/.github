@@ -1,0 +1,1 @@
+[[allowlists]]description = "x"condition = "AND"paths = ['''^docs/a\.md$''']regexes = ['''^AKIA$''']
