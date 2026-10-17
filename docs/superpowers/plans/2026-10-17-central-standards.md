@@ -102,6 +102,40 @@ caller's own `.gitleaks.toml` and a broad caller allowlist silenced the central 
 `repo-standards/` and `.github/workflows/repo-standards.yml` from the new hub commit (commit
 `feat: harden the central gitleaks scan and verifier`). Task 2 pins `standards.yml` to that commit.
 
+### Task 1B: Central-only gitleaks configuration (supersedes the caller-config merge of Task 1A)
+
+Validating a caller's `.gitleaks.toml` in Python keeps diverging from gitleaks' Go parser, so that class
+is removed: **the central scan never reads the caller's gitleaks configuration.**
+
+**This repository:**
+- `gitleaks/base.toml`: `[extend] useDefault = true`, nothing else.
+- `gitleaks/allow/<repo>.toml`: only `[[allowlists]]` entries, each with a reason comment, paths anchored
+  `^…$` and AND-combined with `commits`, `regexes` or `targetRules`. Seeded with the confirmed false
+  positives allowlisted today, anchors copied exactly: `workspaces-hub` (two commits on
+  `tests/test_secret_scan.py`), `spawn-workspace` (commit `b70a50f…` on the docs-site plan),
+  `spawn-control` (`jwt` on the two ticket fixtures, `fixture-1` header), `brand-app` (sha256 digests in
+  `packages/brand/test/legacy-outputs.test.ts`).
+- `gitleaks/empty.gitleaksignore`: empty file for `--gitleaks-ignore-path`.
+- CI: a job that loads `base.toml` alone and `base.toml` + each allow file into the pinned image against an
+  empty directory, so a malformed file fails the PR that adds it.
+
+**Hub (straight to `main`):**
+- Remove `gitleaks_config.py`, `gitleaks.toml`, the caller-TOML validation in `standards/gitleaks.py` and the
+  `gitleaks-allowlist` check (keep the AST no-exec test and the `secrets:` caller check).
+- `templates/central/repo-standards.yml`, gitleaks job: checkout the caller and `pipepath/.github` at
+  `job.workflow_sha`; name = `github.repository` without the `pipepath/` owner (via `env:`, validated
+  `^[A-Za-z0-9_.-]+$`, not `.`/`..`; other owners get the base only); compose
+  `base.toml` + `allow/<name>.toml` (if present) with `cat` into `$RUNNER_TEMP`; remove the caller's
+  `.gitleaksignore`; `* diff` in `.git/info/attributes`; run the pinned image under a clean env with
+  `--config`, `--gitleaks-ignore-path` (the empty file), `--ignore-gitleaks-allow`,
+  `--log-opts="--full-history --all"`, `git /repo --redact --verbose`.
+- `SKILL.md` (gitleaks exceptions section), sync-rules «Publicar el verificador central» copy list, spec
+  §3.2/§3.3, hub log.
+
+**Then:** `/sync-rules spawn-workspace`; in this repository re-copy `repo-standards/` (removing the dropped
+files) and the workflow, add `gitleaks/`, the CI job, update `repo-standards/README.md`, and re-pin
+`standards.yml` to that commit.
+
 ### Task 2: This repository conforms to the standard
 
 **Files:**
