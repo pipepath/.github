@@ -4,7 +4,7 @@ Repositorio central de la organización `pipepath`: aloja el check reutilizable 
 
 ## Qué es
 
-Es el repositorio `.github` de la organización. Guarda un workflow reutilizable (`.github/workflows/repo-standards.yml`) y la copia del verificador que ese workflow ejecuta (`repo-standards/`). Cada repositorio de Pipepath lo llama desde su propio `.github/workflows/standards.yml`.
+Es el repositorio `.github` de la organización. Guarda un workflow reutilizable (`.github/workflows/repo-standards.yml`), la copia del verificador que ese workflow ejecuta (`repo-standards/`) y la configuración del escaneo de secretos (`gitleaks/`). Cada repositorio de Pipepath lo llama desde su propio `.github/workflows/standards.yml`.
 
 Es un repositorio público: no contiene secretos ni datos de infraestructura privada, y los repositorios privados se mencionan solo por nombre.
 
@@ -16,7 +16,7 @@ El estándar de organización de repositorios (README índice, mapa de `docs/`, 
 
 - Un repositorio llama al workflow central, fijado por SHA de 40 caracteres.
 - El job `verify` ejecuta el verificador de `repo-standards/` sobre el repositorio que llama.
-- El job `gitleaks` escanea todo el historial del repositorio que llama con una configuración central.
+- El job `gitleaks` escanea todo el historial del repositorio que llama con la configuración de `gitleaks/` de este repositorio (reglas por defecto más las excepciones de ese repositorio), sin leer la configuración del repositorio que llama.
 - Este repositorio se llama a sí mismo con `.github/workflows/standards.yml` y su CI (`.github/workflows/ci.yml`) corre el verificador y gitleaks sobre sí mismo.
 - Como es el repositorio `.github` de la organización, su `.github/pull_request_template.md` es también la plantilla de PR por defecto de GitHub para los repositorios de la organización que no tienen una propia.
 
@@ -24,12 +24,13 @@ El estándar de organización de repositorios (README índice, mapa de `docs/`, 
 
 - Existe: el workflow central, la copia del verificador y la conformidad de este repositorio con el estándar.
 - En construcción: el despliegue a los demás repositorios de la organización. Hasta que cada uno llame al workflow, el check no cubre toda la organización.
-- Plan de esta etapa: [plan de estándares centrales](docs/superpowers/plans/2026-10-17-central-standards.md).
 
 ## Qué leer
 
 - [Mapa de la documentación](docs/README.md)
 - [README del verificador](repo-standards/README.md): qué es la copia, cómo se actualiza y qué significa `VERSION`.
+- [README de la configuración de gitleaks](gitleaks/README.md): reglas base, excepciones por repositorio y cómo pedir una.
+- [Glosario](docs/glosario.md): los términos que usan estos documentos.
 
 ## Cómo empezar
 

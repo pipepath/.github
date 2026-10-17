@@ -15,7 +15,7 @@ jobs:
         with:
           persist-credentials: false
       - name: verify
-        run: python3 -I repo-standards/verify.py . --version "$(cat repo-standards/VERSION)"
+        run: python3 -I repo-standards/verify.py . --version "$(cat repo-standards/VERSION)" --public
   gitleaks:
     runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' && vars.PIPEPATH_RUNNER) || '"ubuntu-24.04"') }}
     timeout-minutes: 10
@@ -26,9 +26,20 @@ jobs:
           persist-credentials: false
       - name: gitleaks
         run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f git /repo --redact --verbose
+  gitleaks-config:
+    runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' && vars.PIPEPATH_RUNNER) || '"ubuntu-24.04"') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: lint the allow files
+        run: python3 -I gitleaks/check_allow.py
+      - name: load every composed configuration
+        run: bash gitleaks/load_check.sh
   required:
     runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' && vars.PIPEPATH_RUNNER) || '"ubuntu-24.04"') }}
-    needs: [verify, gitleaks]
+    needs: [verify, gitleaks, gitleaks-config]
     if: always()
     steps:
       - name: Fail unless every needed job succeeded

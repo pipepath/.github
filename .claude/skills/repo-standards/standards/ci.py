@@ -259,6 +259,11 @@ def parse_workflow(text):
         job = jobs[cur]
         if prop_indent is None:
             prop_indent = indent
+        if job.get("_ro_open"):
+            if indent > prop_indent:
+                _flag(job, "runs-on continues on a following line (plain-scalar continuation)")
+            else:
+                job["_ro_open"] = False
         is_item = line.startswith("- ")
         body = line[2:].lstrip() if is_item else line
         if needs_open and is_item and not KEY_VALUE.match(body) and indent >= prop_indent:
@@ -362,6 +367,7 @@ def parse_workflow(text):
                 if v == "" or v[0] in "[{" or v[0] in "&*":
                     _flag(job, "runs-on is not a plain scalar")
                 job["runs_on"] = v
+                job["_ro_open"] = True
             elif key == "needs":
                 if val:
                     job["needs"] = _list(val)
@@ -379,6 +385,7 @@ def parse_workflow(text):
                 job["strategy"] = True
     for job in jobs.values():
         job.pop("_seen", None)
+        job.pop("_ro_open", None)
     return wf
 
 
@@ -623,7 +630,21 @@ def _caller_problem(wf):
     return _trigger_problem(wf)
 
 
-def check_workflows(root, report):
+def _public_runs_on_problem(job):
+    """Public mode: only the canonical expression is acceptable; it falls back to hosted runners when
+    PIPEPATH_RUNNER is unset, which infra guarantees for public repositories. Nothing else may be
+    credited, not even an allowlisted job or one that cannot be modeled."""
+    if not job["unparsed"] and job["runs_on"] == CANONICAL_RUNS_ON:
+        return None
+    return "public repositories must never reach the self-hosted runners: runs-on must be exactly the canonical expression"
+
+
+def _public_call_ok(job_uses):
+    ref = unquote(strip_comment(job_uses).strip())
+    return bool(CENTRAL_WORKFLOW.match(ref)) or ref.startswith("./.github/workflows/")
+
+
+def check_workflows(root, report, public=False):
     root = Path(root)
     wf_dir = root / ".github/workflows"
     if not wf_dir.is_dir():
@@ -669,7 +690,15 @@ def check_workflows(root, report):
                 problem = _pin_problem(job["job_uses"])
                 if problem:
                     report.add("pinned-actions", "FAIL", rel, "%s calls a reusable workflow: %s" % (job_id, problem))
+                if public and not _public_call_ok(job["job_uses"]):
+                    report.add("runs-on", "FAIL", rel, "%s: public repositories must never reach the self-hosted "
+                               "runners: a called reusable workflow chooses its own runners, so only the central "
+                               "workflow or a local ./.github/workflows file may be called" % job_id)
                 continue
+            if public:
+                public_problem = _public_runs_on_problem(job)
+                if public_problem:
+                    report.add("runs-on", "FAIL", rel, "%s: %s" % (job_id, public_problem))
             if job["unparsed"]:
                 reason = "cannot model this job (%s)" % job["reason"]
             elif job["runs_on"] != CANONICAL_RUNS_ON:
@@ -677,7 +706,9 @@ def check_workflows(root, report):
                           else None)
             else:
                 reason = None
-            if reason and key not in allow:
+            if public and _public_runs_on_problem(job):
+                pass  # already reported above; the allowlist never applies to runs-on in public mode
+            elif reason and key not in allow:
                 report.add("runs-on", "FAIL", rel, "%s: %s; rewrite it in block style or list '%s' in "
                            ".github/standards-allow.yml with a reason" % (job_id, reason, key))
             elif job["runs_on"] != CANONICAL_RUNS_ON and not reason and not job["unparsed"] and key not in allow:

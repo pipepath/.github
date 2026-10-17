@@ -10,6 +10,8 @@ Se leen en pocos minutos y no piden conocer el código.
 |---|---|---|
 | [README del repo](../README.md) | Todos | Qué es el repositorio central, por qué existe y su estado |
 | [README del verificador](../repo-standards/README.md) | Quien mantiene el estándar | Qué es la copia del verificador, cómo se actualiza y qué significa `VERSION` |
+| [README de gitleaks](../gitleaks/README.md) | Quien mantiene un repositorio de la organización | Qué configuración usa el escaneo de secretos central y cómo pedir una excepción |
+| [Glosario](glosario.md) | Todos | Los términos que usan estos documentos |
 
 ## Para agentes e implementación
 

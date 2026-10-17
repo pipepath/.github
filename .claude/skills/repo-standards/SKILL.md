@@ -72,35 +72,14 @@ todos los repos. El verificador (`verify.py`, en esta carpeta) comprueba la regl
   YAML no modeladas (flow sequences o mappings salvo `with: { fetch-depth: 0 }`, anclas, etiquetas), un
   `if:` en el job o en el paso, ni documentos múltiples. El workflow donde vive debe tener los mismos
   disparadores que `standards.yml`. Es una lista cerrada, no una lista de trucos prohibidos.
-- **`.gitleaks.toml` del repo (`gitleaks-allowlist`):** el escaneo central **no** lee la configuración del
-  repo: usa `gitleaks.toml` (esta carpeta: `[extend] useDefault = true`, sin reglas ni allowlists) y le
-  agrega las entradas de allowlist del repo, mediante `gitleaks_config.py`, solo si el archivo entero pasa
-  esta regla. El check es FAIL sobre el `.gitleaks.toml` de la raíz (si existe). gitleaks lee el TOML con
-  otro analizador (Go; claves sin distinguir mayúsculas), así que lo aceptado es una lista cerrada y
-  sensible a mayúsculas: claves de primer nivel `title`, `minVersion` (texto), `[extend]` con solo
-  `useDefault = true` y `[[allowlists]]`. Es FAIL cualquier otra clave o tabla, el `[allowlist]` antiguo,
-  cualquier `[[rules]]` (con sus allowlists), un `[extend]` con `path`, `url`, `disabledRules` o
-  `useDefault = false`, un TOML inválido o con claves repetidas, un enlace simbólico, y un Python sin
-  `tomllib` (anterior a 3.11), porque no se puede comprobar. Cada entrada de `[[allowlists]]` solo usa
-  `description`, `condition`, `commits`, `paths`, `regexes`, `regexTarget` (`match`, `line` o `secret`),
-  `stopwords` y `targetRules`, y cumple:
-  - `paths` presente y cada patrón es **un archivo exacto**: `^` + caracteres literales + `$`. Los únicos
-    escapes permitidos son los de metacaracteres de regex (`\.`, `\-`, `\+`, `\(`, `\)`, `\[`, `\]`,
-    `\{`, `\}`, `\*`, `\?`, `\|`, `\^`, `\$`, `\\`); no se aceptan clases, grupos, alternancia,
-    cuantificadores, `.`, banderas ni otros escapes. Así una entrada nunca cubre más que el archivo que
-    nombra;
-  - además `commits`, `regexes` o `targetRules`;
-  - cada `regexes` compila (con `re` de Python), no está vacío y no coincide con la cadena vacía ni con 1 a 3
-    repeticiones de un mismo carácter; es solo un control de calidad, el límite de seguridad es el archivo
-    exacto de `paths`. Una regex que Python acepta pero RE2 (gitleaks) no puede compilar hace fallar el
-    escaneo: falla cerrado. Cada `stopwords` tiene al menos 3 caracteres;
-  - `condition`, si está, vale exactamente `"AND"`, y es obligatoria con dos o más de `commits`, `paths`,
-    `regexes` y `stopwords`; `[extend]` exige el booleano `useDefault = true`.
-- **Fusión (`gitleaks_config.py <raíz-del-repo>`):** imprime en stdout el contenido de `gitleaks.toml` más
-  las entradas de `[[allowlists]]` del repo, reescritas por nuestro código (el texto del repo nunca llega a
-  gitleaks). Si cualquier cosa del archivo es FAIL, no copia **nada** (falla cerrado) y lo dice en stderr
-  sin repetir texto del repo. Sin archivo, inválido, enlace simbólico o sin `tomllib`, imprime solo la
-  base. Sale con 0 en esos casos, para que el escaneo central corra igual; sale con 2 solo si falta la base.
+- **Excepciones de gitleaks:** el escaneo central **ignora** el `.gitleaks.toml` del repo, su
+  `.gitleaksignore` y los comentarios `gitleaks:allow` en línea; el verificador no lee ningún
+  `.gitleaks.toml`. La configuración sale solo de `pipepath/.github`: `gitleaks/base.toml` (reglas por
+  defecto) más, si existe, `gitleaks/allow/<repo>.toml`. Una excepción para un repo se pide con un PR a
+  `pipepath/.github` que agregue una entrada `[[allowlists]]` en ese archivo, con `paths` anclados
+  (`^…$`) **y** `commits`, `regexes` o `targetRules`, y un comentario con el motivo en cada entrada. El
+  CI de ese repo carga cada archivo contra la imagen fijada, así que uno malformado falla el PR. El
+  `.gitleaks.toml` propio de un repo solo afecta a su job local de gitleaks, si lo tiene.
 - **Check central `standards`:** corre desde su propio workflow, `.github/workflows/standards.yml`, que
   llama al workflow reutilizable de `pipepath/.github` y no le pasa `secrets:` (tampoco `secrets: inherit`;
   es FAIL `standards-workflow`). Como `needs` no puede apuntar a un job de otro
@@ -139,22 +118,30 @@ todos los repos. El verificador (`verify.py`, en esta carpeta) comprueba la regl
 `templates/central/repo-standards.yml` es el workflow reutilizable que vive en `pipepath/.github` (un repo
 público); los repos no lo copian. Hace checkout del repo que llama y de `pipepath/.github` en el commit del
 workflow llamado (`job.workflow_sha`), y ejecuta el verificador con la `VERSION` de esa copia. Ambos jobs
-corren Python con `-I`. El job `gitleaks` escribe la configuración fusionada en `$RUNNER_TEMP` y la monta de
-solo lectura en la imagen fijada (`--config`), así que ni `.gitleaks.toml` ni nada del repo que llama
-reemplaza la configuración central. Antes del escaneo neutraliza los otros controles que controla el repo
-(comprobado con la imagen fijada): gitleaks carga solo `<repo>/.gitleaksignore` aunque se pase
-`--gitleaks-ignore-path`, así que se borra de la copia de trabajo (el escaneo lee el historial) y la opción
-apunta a un archivo vacío; un `.gitattributes` con `* -diff` oculta los parches de `git log -p`, así que
-`.git/info/attributes` fuerza `* diff` (a costa de más tiempo de escaneo y posibles hallazgos extra en
-binarios: falla cerrado); el historial es explícito (`--log-opts="--full-history --all"`). El
-contenedor no recibe variables del host y `--config` gana sobre `GITLEAKS_CONFIG`. El workflow no tiene
-`inputs`: el repo que llama es el commit del evento y el central está fijado a `job.workflow_sha`. En un
-runner en contenedor con el demonio Docker del host, los montajes de `$RUNNER_TEMP` y `$PWD/repo` pueden no
-existir en el host: el escaneo falla cerrado, no abierto. Los comentarios `gitleaks:allow` del código
-se ignoran (`--ignore-gitleaks-allow`, comprobado con la imagen fijada): un falso positivo se resuelve con una
-entrada de allowlist anclada que pase este check. El verificador solo lee archivos del repo que llama: un test impide
-`subprocess`, `exec`, `eval`, importación dinámica y similares en `verify.py`, `gitleaks_config.py` y
-`standards/`.
+corren Python con `-I`. El job `gitleaks` nunca lee la configuración del repo que llama: compone con `cat`
+`gitleaks/base.toml` y, si existe, `gitleaks/allow/<nombre>.toml` (el nombre es `github.repository` sin
+`pipepath/`, pasado por `env:`, validado con `^[A-Za-z0-9_.-]+$` y distinto de `.` y `..`; otro dueño u otro
+nombre recibe solo la base) en `$RUNNER_TEMP`, y la monta de solo lectura en la imagen fijada (`--config`).
+Antes del escaneo neutraliza los otros controles que controla el repo (comprobado con la imagen fijada):
+gitleaks carga solo `<repo>/.gitleaksignore` aunque se pase `--gitleaks-ignore-path`, así que se borra de la
+copia de trabajo (el escaneo lee el historial) y la opción apunta a un archivo vacío central; un
+`.gitattributes` con `* -diff` oculta los parches de `git log -p`, así que `.git/info/attributes` fuerza
+`* diff` (a costa de más tiempo de escaneo y posibles hallazgos extra en binarios: falla cerrado); los
+comentarios `gitleaks:allow` se ignoran (`--ignore-gitleaks-allow`); el historial es explícito
+(`--log-opts="--full-history --all"`). `docker` corre con `env -i` (solo `PATH` y `HOME`) y `--config` gana
+sobre `GITLEAKS_CONFIG`. El workflow no tiene `inputs`: el repo que llama es el commit del evento y el
+central está fijado a `job.workflow_sha`. En un runner en contenedor con el demonio Docker del host, los
+montajes pueden no existir en el host: el escaneo falla cerrado, no abierto. El verificador solo lee archivos
+del repo que llama: un test impide `subprocess`, `exec`, `eval`, importación dinámica y similares en
+`verify.py` y `standards/`.
+
+**Repos públicos.** Un repo público nunca debe llegar a los runners propios. El runner canónico cae a los
+hospedados solo mientras `PIPEPATH_RUNNER` no está definida (infra lo garantiza para los públicos); la
+opción `verify.py --public` lo fija: es FAIL `runs-on` todo job cuyo `runs-on` no sea exactamente la
+expresión canónica (un `self-hosted`, una etiqueta `pipepath-`, un runner hospedado literal o una matriz),
+incluidos los de `.github/standards-allow.yml` y los que no se pueden modelar. El workflow central la
+agrega salvo que `github.event.repository.private` sea exactamente `true` (por `env:`; vacío cuenta como
+público). Sin la opción el comportamiento no cambia.
 
 ## Cómo verificar
 

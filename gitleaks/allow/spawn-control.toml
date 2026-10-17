@@ -1,0 +1,12 @@
+# Confirmed false positives of spawn-control. Each entry is anchored to the exact file AND to the commits or
+# patterns that hold the false positive.
+
+# The two ticket fixtures hold a JWT signed by a deterministic, public test key (the key itself is never
+# stored). Both conditions must hold: the file is one of the two fixtures AND the token carries the header of
+# the fixture key (kid "fixture-1"), so any other JWT in those files is still reported.
+[[allowlists]]
+description = "Contract fixtures: tickets signed by the public fixture key"
+condition = "AND"
+targetRules = ["jwt"]
+paths = ['''^contract/fixtures/control/ticket-response(-dns-pending)?\.json$''']
+regexes = ['''eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImZpeHR1cmUtMSJ9\.''']
