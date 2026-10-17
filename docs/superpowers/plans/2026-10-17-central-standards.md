@@ -24,12 +24,13 @@ back to the hosted `ubuntu-24.04`).
 
 ## Global Constraints
 
-- Source of truth for every copied file: the hub skill `.claude/skills/repo-standards/` at hub commit
-  `b53320619b61c665f1eea27a8ed7821c815cbf91` (its `VERSION` as written by `/sync-rules`). Copies are
-  byte-identical, without `__pycache__`; nothing under `repo-standards/verify.py`,
-  `repo-standards/standards/` or `.claude/skills/repo-standards/` is edited by hand.
-- `repo-standards/VERSION` and `.claude/skills/repo-standards/VERSION` both contain exactly
-  `b53320619b61c665f1eea27a8ed7821c815cbf91` plus a newline (same bytes as the synced copy).
+- Source of truth for every copied file: the hub skill `.claude/skills/repo-standards/` at the hub
+  commit its `VERSION` names, as written by `/sync-rules` into the synced workspace copy
+  (`b53320619b61c665f1eea27a8ed7821c815cbf91` for Task 1; the new value after Task 1A). Copies are
+  byte-identical, without `__pycache__`; nothing under `repo-standards/` (except its `README.md`) or
+  `.claude/skills/repo-standards/` is edited by hand.
+- `repo-standards/VERSION` and `.claude/skills/repo-standards/VERSION` both contain exactly the synced
+  `VERSION` bytes (40-hex SHA plus a newline).
 - Canonical `runs-on` on every job:
   `${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' && vars.PIPEPATH_RUNNER) || '"ubuntu-24.04"') }}`
 - Every `uses:` pinned by a 40-hex SHA with a version comment; third-party actions at least 14 days old
@@ -68,12 +69,45 @@ back to the hosted `ubuntu-24.04`).
 - [ ] **Step 4:** Commit `feat: add the central repo-standards verifier and reusable workflow`. Record its
   SHA: Task 2 pins `standards.yml` to it.
 
+### Task 1A: Central gitleaks config and verifier hardening (hub first, then re-copy)
+
+A security review of the Task 1 commit found two gaps. (1) Untrusted caller content on self-hosted
+runners: the verifier must only read the caller's files (no `exec`, `eval`, `subprocess`, dynamic
+import), pinned by a test; the central workflow interpolates nothing from the caller into `run:`.
+(2) Control bypass: the central gitleaks step scanned the caller checkout, so gitleaks honored the
+caller's own `.gitleaks.toml` and a broad caller allowlist silenced the central scan.
+
+**Hub (straight to `main`), in `.claude/skills/repo-standards/`:**
+- `gitleaks.toml`: the central base config, `[extend] useDefault = true`, no allowlists, no rules.
+- `gitleaks_config.py` (stdlib; `tomllib`): reads the caller's root `.gitleaks.toml`, keeps only the
+  allowlist entries that pass the `gitleaks-allowlist` rule below, and prints the base config plus those
+  entries; caller `[[rules]]`, `[extend]` and per-rule allowlists are never carried over; dropped entries
+  are listed on stderr. Invalid or absent caller config: base config only.
+- `standards/`: new check `gitleaks-allowlist` (FAIL) on the root `.gitleaks.toml`: every global
+  allowlist entry (`[allowlist]` or `[[allowlists]]`) and every per-rule allowlist has `paths`, each
+  anchored `^…$` and without an unbounded wildcard (`.*`, `.+`, `.{n,}`), plus `commits`, `regexes` or
+  `targetRules`; `condition = "AND"` whenever two or more of `commits`, `paths`, `regexes`, `stopwords`
+  are set. `standards-workflow` also FAILs a caller job that passes `secrets:` to the central workflow.
+- A test that parses `verify.py`, `gitleaks_config.py` and `standards/*.py` (AST) and fails on any
+  `subprocess`, `os.system`, `os.exec*`, `os.spawn*`, `os.popen`, `exec`, `eval`, `compile`,
+  `__import__`, `importlib`, `runpy`, `pickle`, `marshal`, `shelve`, `ctypes`.
+- `templates/central/repo-standards.yml`: both jobs run Python with `-I`; the `gitleaks` job also checks
+  out `pipepath/.github` at `job.workflow_sha`, writes the merged config to `$RUNNER_TEMP`, and runs the
+  pinned image with `--config` pointing at it (mounted read-only). No `${{ }}` of caller data in `run:`.
+- `SKILL.md`, the `sync-rules` section «Publicar el verificador central» (copy list: `verify.py`,
+  `gitleaks_config.py`, `gitleaks.toml`, `standards/`, `VERSION`) and spec §3.3 updated.
+- Hub tests green (`python3 -m unittest discover -s tests -v`), verifier coverage ≥ 90 %.
+
+**Then:** `/sync-rules spawn-workspace` (new `VERSION`), and in this repository re-copy
+`repo-standards/` and `.github/workflows/repo-standards.yml` from the new hub commit (commit
+`feat: harden the central gitleaks scan and verifier`). Task 2 pins `standards.yml` to that commit.
+
 ### Task 2: This repository conforms to the standard
 
 **Files:**
 - Create: `.claude/skills/repo-standards/` (byte-identical copy of the synced workspace skill, with `VERSION`)
 - Create: `.github/workflows/ci.yml` (jobs `verify`, `gitleaks`, `required`)
-- Create: `.github/workflows/standards.yml` (the hub template, pinned to the Task 1 commit, comment `# set by /sync-repos`)
+- Create: `.github/workflows/standards.yml` (the hub template, pinned to the Task 1A re-copy commit, comment `# set by /sync-repos`)
 - Create: `.github/pull_request_template.md` (the hub template)
 - Modify: `README.md`; Create: `docs/README.md`, `repo-standards/README.md`
 
