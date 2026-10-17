@@ -5,3 +5,4 @@ description = "Confirmed false positive: test fixtures signed by a public test k
 condition = "AND"
 targetRules = ["jwt"]
 paths = ['''^contract/fixtures/control/ticket-response(-dns-pending)?\.json$''']
+regexes = ['''eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImZpeHR1cmUtMSJ9\.''']

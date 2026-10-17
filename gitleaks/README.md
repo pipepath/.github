@@ -44,9 +44,15 @@ Cargar la configuración base y cada archivo de `allow/` en la imagen fijada de 
 bash gitleaks/load_check.sh
 ```
 
+Comprobar que la excepción de `spawn-control` conserva su ancla de encabezado: un JWT con otro `kid`, o en otra ruta, sigue siendo un hallazgo (arma los tokens al ejecutar; necesita Docker):
+
+```bash
+bash gitleaks/tests/scan_anchor.sh
+```
+
 ## Desarrollo
 
-Un cambio en `base.toml` o en `allow/` se prueba con los tres comandos anteriores; la CI los corre en el job `gitleaks-config`. La imagen de gitleaks de `load_check.sh` debe ser la misma que usa el workflow central.
+Un cambio en `base.toml` o en `allow/` se prueba con los cuatro comandos anteriores; la CI los corre en el job `gitleaks-config`. La imagen de gitleaks de `load_check.sh` debe ser la misma que usa el workflow central.
 
 ## Mapa del código
 
@@ -55,4 +61,4 @@ Un cambio en `base.toml` o en `allow/` se prueba con los tres comandos anteriore
 - `empty.gitleaksignore`: archivo vacío.
 - `check_allow.py`: revisa que `allow/` solo tenga comentarios y tablas `[[allowlists]]`.
 - `load_check.sh`: carga cada configuración compuesta en gitleaks.
-- `tests/`: `run.sh` y los archivos malos de `bad/` que el linter debe rechazar.
+- `tests/`: `run.sh`, los archivos malos de `bad/` que el linter debe rechazar y `scan_anchor.sh`, que escanea tokens armados al ejecutar.

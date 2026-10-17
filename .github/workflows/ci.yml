@@ -39,6 +39,8 @@ jobs:
         run: bash gitleaks/tests/run.sh
       - name: load every composed configuration
         run: bash gitleaks/load_check.sh
+      - name: the spawn-control allowlist keeps its header anchor
+        run: bash gitleaks/tests/scan_anchor.sh
   required:
     runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' && vars.PIPEPATH_RUNNER) || '"ubuntu-24.04"') }}
     needs: [verify, gitleaks, gitleaks-config]
