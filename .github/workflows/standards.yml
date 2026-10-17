@@ -8,4 +8,4 @@ permissions:
   contents: read
 jobs:
   standards:
-    uses: pipepath/.github/.github/workflows/repo-standards.yml@f694eb969a17d58b9feafbdd181ff6160a3c4538 # set by /sync-repos
+    uses: pipepath/.github/.github/workflows/repo-standards.yml@49e6a6a525aa9de450bcee4638e06e1f77d69e77 # set by /sync-repos
