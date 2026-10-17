@@ -21,5 +21,8 @@ El escaneo central de gitleaks no vive en esta carpeta: su configuración está 
 Verificar un repositorio (el de la raíz, en este caso):
 
 ```bash
-python3 -I repo-standards/verify.py . --version "$(cat repo-standards/VERSION)"
+python3 -I repo-standards/verify.py . --version "$(cat repo-standards/VERSION)" \
+  --repo-private=false --central-gitleaks=gitleaks --repo-name=.github
 ```
+
+`--repo-private=false` aplica las reglas de un repositorio público (solo el valor exacto `true` aplica las privadas; sin la opción rige la pública). `--central-gitleaks` y `--repo-name` permiten comprobar que un `.gitleaksignore` o `.gitleaks.toml` del repositorio tenga su archivo de excepciones en `gitleaks/allow/`.

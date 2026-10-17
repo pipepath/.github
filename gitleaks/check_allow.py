@@ -4,7 +4,7 @@ This lints our own reviewed files; it is not a security boundary. Each file may 
 `#` comments and `[[allowlists]]` tables with single-line `key = value` entries whose keys are among the
 allowed set. Every table must also be narrow: `paths` anchored with `^...$`, at least one of `commits`,
 `regexes` or `targetRules`, and `condition = "AND"` when `paths` is combined with `commits`, `regexes` or
-`stopwords`. Paths and regexes may not be wildcards (`.*`, `.+`). Every key line must parse on its own
+`stopwords`. Paths and regexes may not be wildcards (`.*`, `.+`, `.{0,}`). Every key line must parse on its own
 as exactly one allowed key, so no value spans lines. `[extend]`, `[[rules]]`, `[allowlist]`, other tables
 and top-level keys are errors, as are wrongly typed values and line-break characters other than LF.
 Usage: python3 -I gitleaks/check_allow.py [directory]     lint a directory (default: gitleaks/allow)
@@ -52,8 +52,8 @@ def table_errors(table):
         for path in paths:
             if not (isinstance(path, str) and path.startswith("^") and path.endswith("$")):
                 problems.append(f"path not anchored with ^...$: {path!r}")
-            elif ".*" in path or ".+" in path:
-                problems.append(f"path pattern with a wildcard (.* or .+): {path!r}")
+            elif ".*" in path or ".+" in path or ".{0,}" in path:
+                problems.append(f"path pattern with a wildcard (.*, .+ or .{{0,}}): {path!r}")
     for regex in table.get("regexes", []):
         if regex in WILDCARD_REGEXES:
             problems.append(f"regex matches everything or nothing: {regex!r}")

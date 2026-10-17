@@ -28,18 +28,27 @@ jobs:
           path: central
           persist-credentials: false
       # Public repositories must never reach the self-hosted runners. The canonical runs-on falls back to hosted
-      # only while PIPEPATH_RUNNER is unset (infra guarantees that for public repositories); `--public` pins it
-      # by failing every job whose runs-on is not exactly the canonical expression. The visibility comes from
-      # the event payload through `env:` (never interpolated into the script) and fails closed: anything but
-      # exactly "true" (including empty) counts as public.
+      # only while PIPEPATH_RUNNER is unset (infra guarantees that for public repositories); the verifier pins
+      # it by failing every job whose runs-on is not exactly the canonical expression, unless `--repo-private`
+      # is exactly "true". The visibility and the repository name come from the event context through `env:`
+      # (never interpolated into the script); the visibility fails closed (anything but "true" is public). The
+      # name is derived and validated exactly as in the gitleaks job: another owner or an odd name passes no
+      # `--repo-name`, and the verifier then warns that it cannot confirm the central exception file. The `=` form
+      # keeps a value that starts with `-` from being read as an option. The gitleaks job's `-f` follows symlinks
+      # inside the trusted central checkout while the verifier's check does not (the safe direction).
       - name: verify
         env:
           REPO_PRIVATE: ${{ github.event.repository.private }}
+          CALLER: ${{ github.repository }}
         run: |
           set -euo pipefail
-          args=()
-          if [ "$REPO_PRIVATE" != "true" ]; then args+=(--public); fi
-          python3 -I central/repo-standards/verify.py repo --version "$(cat central/repo-standards/VERSION)" ${args[@]+"${args[@]}"}
+          export LC_ALL=C
+          name="${CALLER#pipepath/}"
+          args=(--version "$(cat central/repo-standards/VERSION)" --repo-private="$REPO_PRIVATE" --central-gitleaks central/gitleaks)
+          if [[ "$CALLER" == pipepath/* && "$name" =~ ^[A-Za-z0-9_.-]+$ && "$name" != . && "$name" != .. ]]; then
+            args+=(--repo-name="$name")
+          fi
+          python3 -I central/repo-standards/verify.py repo "${args[@]}"
   gitleaks:
     runs-on: ${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' && vars.PIPEPATH_RUNNER) || '"ubuntu-24.04"') }}
     timeout-minutes: 10

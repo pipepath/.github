@@ -37,7 +37,8 @@ El estándar de organización de repositorios (README índice, mapa de `docs/`, 
 Comprobar este repositorio contra el estándar, desde la raíz (necesita Python 3.11 o superior):
 
 ```bash
-python3 -I repo-standards/verify.py . --version "$(cat repo-standards/VERSION)"
+python3 -I repo-standards/verify.py . --version "$(cat repo-standards/VERSION)" \
+  --repo-private=false --central-gitleaks=gitleaks --repo-name=.github
 ```
 
 No debe imprimir ningún `FAIL`. Los mismos comandos corren en CI.

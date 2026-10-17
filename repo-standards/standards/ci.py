@@ -10,6 +10,8 @@ gitleaks scan and the `required` aggregate are exact allowlists of canonical for
 import re
 from pathlib import Path
 
+from .docs import present
+
 CANONICAL_RUNS_ON = (
     "${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name"
     " == github.repository) && github.actor != 'dependabot[bot]' && vars.PIPEPATH_RUNNER) || '\"ubuntu-24.04\"') }}"
@@ -644,7 +646,32 @@ def _public_call_ok(job_uses):
     return bool(CENTRAL_WORKFLOW.match(ref)) or ref.startswith("./.github/workflows/")
 
 
-def check_workflows(root, report, public=False):
+REPO_NAME = re.compile(r"[A-Za-z0-9_.-]+")
+
+
+def check_gitleaks_local(root, report, central_dir=None, repo_name=None):
+    """Local gitleaks files are not honored by the central scan: their exceptions must live in pipepath/.github.
+
+    Only the existence of the files is tested; their contents are never read or parsed.
+    """
+    local = [n for n in (".gitleaksignore", ".gitleaks.toml") if present(root, n)]
+    if not local:
+        return
+    valid = (repo_name is not None and REPO_NAME.fullmatch(repo_name) is not None
+             and repo_name not in (".", ".."))
+    if central_dir is None or not valid:
+        report.add("gitleaks-local", "WARN", local[0],
+                   "cannot confirm the central exception file (needs --central-gitleaks and a valid --repo-name)")
+        return
+    allow = Path(central_dir) / "allow" / (repo_name + ".toml")
+    if allow.is_symlink() or not allow.is_file():
+        report.add("gitleaks-local", "FAIL", local[0],
+                   "the central gitleaks scan does not honor local %s; move the exceptions to pipepath/.github "
+                   "`gitleaks/allow/<repo>.toml` (here gitleaks/allow/%s.toml) and delete the local file(s)"
+                   % (" or ".join(local), repo_name))
+
+
+def check_workflows(root, report, public=True):
     root = Path(root)
     wf_dir = root / ".github/workflows"
     if not wf_dir.is_dir():

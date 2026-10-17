@@ -136,12 +136,24 @@ del repo que llama: un test impide `subprocess`, `exec`, `eval`, importación di
 `verify.py` y `standards/`.
 
 **Repos públicos.** Un repo público nunca debe llegar a los runners propios. El runner canónico cae a los
-hospedados solo mientras `PIPEPATH_RUNNER` no está definida (infra lo garantiza para los públicos); la
-opción `verify.py --public` lo fija: es FAIL `runs-on` todo job cuyo `runs-on` no sea exactamente la
-expresión canónica (un `self-hosted`, una etiqueta `pipepath-`, un runner hospedado literal o una matriz),
-incluidos los de `.github/standards-allow.yml` y los que no se pueden modelar. El workflow central la
-agrega salvo que `github.event.repository.private` sea exactamente `true` (por `env:`; vacío cuenta como
-público). Sin la opción el comportamiento no cambia.
+hospedados solo mientras `PIPEPATH_RUNNER` no está definida (infra lo garantiza para los públicos). La
+opción `verify.py --repo-private VALOR` falla cerrado: solo el valor exacto `true` aplica las reglas de repo
+privado; sin la opción, vacío, `false`, `True`, ` true` o cualquier otro valor aplican las reglas públicas, en
+las que es FAIL `runs-on` todo job cuyo `runs-on` no sea exactamente la expresión canónica (un `self-hosted`,
+una etiqueta `pipepath-`, un runner hospedado literal o una matriz), incluidos los de
+`.github/standards-allow.yml` y los que no se pueden modelar. Un valor que no sea `true` ni `false` agrega
+además un WARN `visibility` (se trató como público). El workflow central pasa
+`github.event.repository.private` por `env:`. Una ejecución local sin la opción usa las reglas públicas: añade
+`--repo-private true` solo si el repo es privado y tiene excepciones `runs-on` legítimas.
+
+**Archivos locales de gitleaks.** El escaneo central no honra `.gitleaksignore` ni `.gitleaks.toml` del repo.
+El check `gitleaks-local` falla si alguno existe (de cualquier tipo, sin leer su contenido) y
+`pipepath/.github` no tiene `gitleaks/allow/<repo>.toml`. Cómo corregirlo: mueve las excepciones a ese
+archivo con un PR a `pipepath/.github` (rutas ancladas, un motivo por entrada) y borra los archivos locales.
+Recibe `--central-gitleaks DIR` (el directorio `gitleaks/` de `pipepath/.github`) y `--repo-name NOMBRE`
+(válido con `^[A-Za-z0-9_.-]+$`, distinto de `.` y `..`); si falta alguno o el nombre no es válido, solo
+avisa (WARN) que no puede confirmar el archivo central. El job `verify` del workflow central deriva el nombre
+igual que el job `gitleaks` y pasa ambas opciones.
 
 ## Cómo verificar
 
