@@ -136,6 +136,24 @@ is removed: **the central scan never reads the caller's gitleaks configuration.*
 files) and the workflow, add `gitleaks/`, the CI job, update `repo-standards/README.md`, and re-pin
 `standards.yml` to that commit.
 
+### Task 1C: Fail-closed visibility and the local gitleaks files check
+
+**Hub (straight to `main`):**
+- `verify.py`: `--public` becomes `--repo-private <value>`; only the exact value `true` selects private
+  mode; missing, empty, `false` or anything else selects the public rules (never default to private).
+- New check `gitleaks-local`: FAIL when the repository has `.gitleaksignore` or `.gitleaks.toml` and
+  `pipepath/.github` has no `gitleaks/allow/<repo>.toml` for it (local exceptions the central scan does not
+  honor must move there). Inputs `--central-gitleaks <dir>` and `--repo-name <name>`; without them the
+  check WARNs that it cannot confirm. The file contents are never parsed.
+- Central template, verify job: `REPO_PRIVATE` and `CALLER` through `env:`; repo name derived and validated
+  exactly as in the gitleaks job (shared snippet or identical, both pinned by tests); passes
+  `--repo-private "$REPO_PRIVATE" --central-gitleaks central/gitleaks --repo-name "$name"`.
+- A test pins the full `CHECKS` list and the exit codes (0 clean, 1 findings, 2 usage).
+- `SKILL.md`, spec §3.3, hub log.
+
+**Then:** `/sync-rules spawn-workspace`; re-copy into this repository; `ci.yml` self-check passes
+`--repo-private false --central-gitleaks gitleaks --repo-name .github`; re-pin `standards.yml`.
+
 ### Task 2: This repository conforms to the standard
 
 **Files:**
