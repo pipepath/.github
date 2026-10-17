@@ -4,28 +4,28 @@ This lints our own reviewed files; it is not a security boundary. Each file may 
 `#` comments and `[[allowlists]]` tables with single-line `key = value` entries whose keys are among the
 allowed set. Every table must also be narrow: `paths` anchored with `^...$`, at least one of `commits`,
 `regexes` or `targetRules`, and `condition = "AND"` when `paths` is combined with `commits`, `regexes` or
-`stopwords`. `[extend]`, `[[rules]]`, `[allowlist]`, other tables, top-level keys, triple-double-quoted
-strings and backslashes outside literal strings are errors.
+`stopwords`. Paths and regexes may not be wildcards (`.*`, `.+`). Every key line must parse on its own
+as exactly one allowed key, so no value spans lines. `[extend]`, `[[rules]]`, `[allowlist]`, other tables
+and top-level keys are errors.
 Usage: python3 -I gitleaks/check_allow.py [directory]     lint a directory (default: gitleaks/allow)
        python3 -I gitleaks/check_allow.py --list [dir]    print the file names the linter would lint
 """
-import re
 import sys
 import tomllib
 from pathlib import Path
 
 KEYS = ("description", "condition", "commits", "paths", "regexes", "regexTarget", "stopwords", "targetRules")
-KEY_LINE = re.compile(r"^(" + "|".join(KEYS) + r")\s*=\s*\S")
-LITERAL = re.compile(r"'''.*?'''")
+WILDCARD_REGEXES = {"", ".*", ".+", "^.*$", "^.+$"}
 
 
-def line_errors(line):
-    if '"""' in line:
-        return "triple-double-quoted strings are not allowed"
-    if line.count("'''") % 2:
-        return "unbalanced ''' literal string"
-    if "\\" in LITERAL.sub("", line):
-        return "backslashes are only allowed inside ''' literal strings"
+def line_error(line):
+    """A key line must parse on its own into exactly one allowed key, so no value can span lines."""
+    try:
+        data = tomllib.loads(line)
+    except tomllib.TOMLDecodeError as error:
+        return f"line does not parse on its own: {error}"
+    if len(data) != 1 or next(iter(data)) not in KEYS:
+        return "not exactly one allowed key"
     return None
 
 
@@ -38,6 +38,11 @@ def table_errors(table):
         for path in paths:
             if not (isinstance(path, str) and path.startswith("^") and path.endswith("$")):
                 problems.append(f"path not anchored with ^...$: {path!r}")
+            elif ".*" in path or ".+" in path:
+                problems.append(f"path pattern with a wildcard (.* or .+): {path!r}")
+    for regex in table.get("regexes", []):
+        if regex in WILDCARD_REGEXES:
+            problems.append(f"regex matches everything or nothing: {regex!r}")
     if not any(table.get(key) for key in ("commits", "regexes", "targetRules")):
         problems.append("needs at least one of commits, regexes or targetRules")
     if any(table.get(key) for key in ("commits", "regexes", "stopwords")) and table.get("condition") != "AND":
@@ -57,10 +62,8 @@ def lint(path):
             continue
         if not in_table:
             errors.append(f"{path.name}:{number}: only comments may precede the first [[allowlists]] table")
-        elif not KEY_LINE.match(line):
-            errors.append(f"{path.name}:{number}: not an allowed line: {line[:60]}")
-        elif line_errors(line):
-            errors.append(f"{path.name}:{number}: {line_errors(line)}")
+        elif line_error(line):
+            errors.append(f"{path.name}:{number}: {line_error(line)}: {line[:60]}")
     if errors:
         return errors
     try:

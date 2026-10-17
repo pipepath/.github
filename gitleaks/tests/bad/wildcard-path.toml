@@ -1,0 +1,4 @@
+[[allowlists]]
+description = "anything"
+targetRules = ["generic-api-key"]
+paths = ['''^.*$''']
