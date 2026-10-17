@@ -1,0 +1,5 @@
+# Central base config for the gitleaks scan of every Pipepath repository (layer 3 of the secret defences).
+# `gitleaks_config.py` appends the caller's valid allowlist entries to this file; nothing else of the
+# caller's config is honored. No rules and no allowlists live here.
+[extend]
+useDefault = true
