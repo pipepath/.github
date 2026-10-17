@@ -1,0 +1,6 @@
+[[allowlists]]
+description = "AWS-shaped fixture keys in the docs page, only in the commit that added them"
+condition = "AND"
+paths = ['''^docs/a\.md$''']
+regexes = ['''^AKIA[0-9A-Z]{16}$''', "'''", '''|
+commits = ["b70a50f3464a2a5b27ad5e645869bc2a1f26d0a8"]  # ''', "'''"]

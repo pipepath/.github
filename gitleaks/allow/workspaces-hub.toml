@@ -1,0 +1,7 @@
+# Confirmed false positives of workspaces-hub. Each entry is anchored to the exact file(s) AND to a rule, commits or a pattern.
+
+[[allowlists]]
+description = "Confirmed false positive: synthetic path-shaped values in hook tests, not credentials"
+condition = "AND"
+commits = ["aeeaef6bf3708aa30c4d4d18803f56132b6f164f", "00e58acde6c253a7131b5b85e1f1a51036729de3"]
+paths = ['''^tests/test_secret_scan\.py$''']

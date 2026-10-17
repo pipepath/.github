@@ -1,0 +1,7 @@
+# Confirmed false positives of spawn-workspace. Each entry is anchored to the exact file(s) AND to a rule, commits or a pattern.
+
+[[allowlists]]
+description = "Confirmed false positive: a route list in a plan, not a credential"
+condition = "AND"
+commits = ["b70a50f3464a2a5b27ad5e645869bc2a1f26d0a8"]
+paths = ['''^docs/superpowers/plans/2026-10-11-pipepath-docs-site-v1\.md$''']
