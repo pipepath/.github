@@ -14,7 +14,7 @@ Es el commit del hub del que salen los archivos de la copia, y el valor que el w
 
 ## Escaneo de secretos
 
-El escaneo central de gitleaks no vive en esta carpeta: su configuración está en [`gitleaks/`](../gitleaks/README.md) y nunca sale del repositorio que llama.
+El escaneo central de gitleaks no vive en esta carpeta: su configuración está en [`gitleaks/`](../gitleaks/README.md) y nunca se toma del repositorio que llama.
 
 ## Comandos
 

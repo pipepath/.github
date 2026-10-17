@@ -1,9 +1,7 @@
-# Confirmed false positives of brand-app. Each entry is anchored to the exact file AND to the commits or
-# patterns that hold the false positive.
+# Confirmed false positives of brand-app. Each entry is anchored to the exact file(s) AND to a rule, commits or a pattern.
 
-# Public sha256 digests of published outputs, pinned in a test. Not credentials.
 [[allowlists]]
-description = "sha256 digests of the published @pipepath/brand 1.0.1 outputs, pinned in the S2 test. Public file hashes, not credentials."
+description = "Confirmed false positive: public sha256 digests pinned in a test, not credentials"
 targetRules = ["generic-api-key"]
 condition = "AND"
 paths = ['''^packages/brand/test/legacy-outputs\.test\.ts$''']

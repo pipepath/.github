@@ -18,15 +18,15 @@ El escaneo central ignora el `.gitleaks.toml` del repositorio, su `.gitleaksigno
 ## Cómo pedir una excepción
 
 1. Abre un PR a este repositorio que agregue una entrada `[[allowlists]]` en `allow/<repo>.toml` (el archivo se crea si no existe).
-2. Antepón a cada entrada un comentario con el motivo.
+2. Describe el motivo en `description`, de forma genérica. Este repositorio es público: la ruta, los commits, las regex y la descripción quedan visibles para cualquiera, así que no incluyas detalles internos del repositorio.
 3. Ancla cada ruta con `^…$` y combínala con `commits`, `regexes` o `targetRules`; con `commits`, `regexes` o `stopwords` usa `condition = "AND"`. Una ruta sola no pasa el linter. Cada clave va en una sola línea que se pueda leer sola como TOML, y ni las rutas ni las regex pueden ser comodines (`.*`, `.+`).
 4. Los archivos de `allow/` solo pueden tener comentarios y tablas `[[allowlists]]`; `[extend]`, `[[rules]]` y `[allowlist]` hacen fallar la CI.
 
-El criterio completo está en la sección «Excepciones de gitleaks» del skill `repo-standards` del hub de la organización (repositorio privado `workspaces-hub`).
+El criterio completo está en el punto «Excepciones de gitleaks», bajo «Integración continua», de [`../.claude/skills/repo-standards/SKILL.md`](../.claude/skills/repo-standards/SKILL.md).
 
 ## Comandos
 
-Revisar los archivos de `allow/` (necesita Python 3):
+Revisar los archivos de `allow/` (necesita Python 3.11 o superior):
 
 ```bash
 python3 -I gitleaks/check_allow.py

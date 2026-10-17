@@ -1,9 +1,7 @@
-# Confirmed false positives of spawn-workspace. Each entry is anchored to the exact file AND to the commits or
-# patterns that hold the false positive.
+# Confirmed false positives of spawn-workspace. Each entry is anchored to the exact file(s) AND to a rule, commits or a pattern.
 
-# Route list of the docs site in a plan, not a credential.
 [[allowlists]]
-description = "Docs-site route list ('spawn/reference/api', ...) in the docs-site plan, not a credential"
+description = "Confirmed false positive: a route list in a plan, not a credential"
 condition = "AND"
 commits = ["b70a50f3464a2a5b27ad5e645869bc2a1f26d0a8"]
 paths = ['''^docs/superpowers/plans/2026-10-11-pipepath-docs-site-v1\.md$''']
