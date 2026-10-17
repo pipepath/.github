@@ -1,0 +1,4 @@
+[[allowlists]]
+description = """x\"""
+commits = ["deadbeef"]"""  # """
+paths = ['''.*''']
