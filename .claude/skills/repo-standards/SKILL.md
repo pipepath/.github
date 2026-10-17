@@ -188,9 +188,8 @@ ci.yml/build-macos: necesita un runner macOS para compilar la app
 ## Modelo de amenaza y límites conocidos
 
 El verificador es un **check de conformidad**: detecta desvíos y errores de buena fe de miembros y
-agentes de confianza. No es una frontera de seguridad frente a un adversario: la organización no tiene
-protección de rama (GitHub Free, repos privados), así que quien escribe en un repo puede borrar el
-workflow. Por eso lo que importa se hace estructural (el workflow central corre gitleaks por su cuenta) y
+agentes de confianza. No es una frontera de seguridad frente a un adversario: quien tiene permiso de
+escritura en un repo puede quitar el workflow. Por eso lo que importa se hace estructural (el workflow central corre gitleaks por su cuenta) y
 lo que el analizador acepta es una lista cerrada de formas canónicas, no una lista de trucos prohibidos.
 
 Límites conocidos, aceptados bajo ese modelo:
