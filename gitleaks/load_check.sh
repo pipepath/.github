@@ -15,10 +15,18 @@ load() {
     dir /empty --config /central/gitleaks.toml --no-banner --redact
 }
 
-cp gitleaks/base.toml "$work/gitleaks.toml"
+# The loader must see exactly the files the linter lints (a dotfile such as allow/.github.toml included).
+shopt -s dotglob nullglob
+files=(gitleaks/allow/*.toml)
+if [ "$(printf '%s\n' "${files[@]##*/}" | LC_ALL=C sort)" != "$(python3 -I gitleaks/check_allow.py --list | LC_ALL=C sort)" ]; then
+  echo "load_check.sh and check_allow.py see different allow files" >&2
+  exit 1
+fi
+
+{ cat gitleaks/base.toml; printf '\n'; } > "$work/gitleaks.toml"
 echo "load: base.toml"
 load
-for allow in gitleaks/allow/*.toml; do
+for allow in "${files[@]}"; do
   { cat gitleaks/base.toml; printf '\n'; cat "$allow"; printf '\n'; } > "$work/gitleaks.toml"
   echo "load: base.toml + $allow"
   load

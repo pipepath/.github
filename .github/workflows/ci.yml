@@ -35,6 +35,8 @@ jobs:
           persist-credentials: false
       - name: lint the allow files
         run: python3 -I gitleaks/check_allow.py
+      - name: test the linter against crafted bad files
+        run: bash gitleaks/tests/run.sh
       - name: load every composed configuration
         run: bash gitleaks/load_check.sh
   required:

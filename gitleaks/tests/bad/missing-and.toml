@@ -1,0 +1,4 @@
+[[allowlists]]
+description = "no AND"
+commits = ["aeeaef6bf3708aa30c4d4d18803f56132b6f164f"]
+paths = ['''^docs/a\.md$''']
