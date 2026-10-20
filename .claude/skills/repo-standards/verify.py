@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from standards import ci, docs  # noqa: E402
+from standards import ci, docs, naming  # noqa: E402
 from standards.report import Report  # noqa: E402
 
 CHECKS = [docs.check_files, docs.check_lengths, docs.check_first_line, docs.check_docs_map, docs.check_links,
@@ -32,6 +32,7 @@ def run(root, version=None, repo_private=None, central_gitleaks=None, repo_name=
             check(root, report, central_dir=central_gitleaks, repo_name=repo_name)
         else:
             check(root, report)
+    naming.check_repo_name(root, report, repo_name)
     ci.check_skill_version(root, report, version)
     return report
 
@@ -48,7 +49,7 @@ def main(argv=None):
     ap.add_argument("--central-gitleaks", default=None, metavar="DIR",
                     help="checkout of pipepath/.github's gitleaks/ directory (for the gitleaks-local check)")
     ap.add_argument("--repo-name", default=None, metavar="NAME",
-                    help="repository name, used to look up DIR/allow/NAME.toml")
+                    help="repository name: checked against the naming convention and used to look up DIR/allow/NAME.toml")
     ap.add_argument("--format", choices=["text", "json"], default="text")
     args = ap.parse_args(argv)
     root = Path(args.root)
