@@ -33,8 +33,9 @@ jobs:
       # is exactly "true". The visibility and the repository name come from the event context through `env:`
       # (never interpolated into the script); the visibility fails closed (anything but "true" is public). The
       # name is derived and validated exactly as in the gitleaks job: another owner or an odd name passes no
-      # `--repo-name`, and the verifier then warns that it cannot confirm the central exception file. The `=` form
-      # keeps a value that starts with `-` from being read as an option. The gitleaks job's `-f` follows symlinks
+      # `--repo-name`, and the verifier then warns that it cannot confirm the central exception file or check the
+      # repository name. The `=` form keeps a value that starts with `-` from being read as an option. The gitleaks
+      # job's `-f` follows symlinks
       # inside the trusted central checkout while the verifier's check does not (the safe direction).
       - name: verify
         env:

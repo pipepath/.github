@@ -1,6 +1,6 @@
 ---
 name: repo-standards
-description: Organización estándar de un repo de Pipepath: README índice, mapa docs/ para personas y para agentes, glosario, README por componente, CI canónica y plantilla de PR; incluye plantillas y el verificador. Usar al crear un repo, al escribir o reorganizar documentación, o cuando el check `standards` falle.
+description: Organización estándar de un repo de Pipepath: README índice, mapa docs/ para personas y para agentes, glosario, README por componente, CI canónica y plantilla de PR; incluye plantillas y el verificador. Usar al crear o renombrar un repo, al escribir o reorganizar documentación, o cuando el check `standards` falle.
 ---
 
 # repo-standards: organización estándar de un repo de Pipepath
@@ -158,7 +158,7 @@ igual que el job `gitleaks` y pasa ambas opciones.
 ## Cómo verificar
 
 ```bash
-python3 .claude/skills/repo-standards/verify.py . --format text
+python3 .claude/skills/repo-standards/verify.py . --repo-name <nombre-del-repo> --format text
 ```
 
 Códigos de salida: 0 sin FAIL, 1 con algún FAIL, 2 error de uso (por ejemplo, la ruta no es una
@@ -172,6 +172,44 @@ omiten. Un workflow ilegible es FAIL (`workflow-parse`).
 mano. El check central `standards` pasa su propia `VERSION` con `--version`, y la revisión
 `skill-version` falla si la copia del repo es distinta (o no existe): la solución es correr
 `/sync-repos`. Sin `--version`, esa revisión no corre.
+
+## Nombres de repos
+
+El nombre dice qué es el repo sin abrirlo. Se elige con esta tabla antes de crear o renombrar:
+
+| Tipo | Nombre | Ejemplos |
+|---|---|---|
+| Sitio (sirve un host) | el del host: el subdominio, o `home` para el dominio raíz | `home` (pipepath.com), `brand` (brand.pipepath.com), `docs` (docs.pipepath.com) |
+| Pieza de un producto | `<producto>-<pieza>` | `spawn-agent`, `spawn-relay`, `spawn-web` (la app web del producto) |
+| Framework o librería compartida | un nombre propio, nunca una palabra de tipo | `tileset` (el sistema de diseño) |
+| Workspace | `<ámbito>-workspace` | `pipepath-workspace`, `spawn-workspace` |
+| Meta de la organización | el de GitHub o su función | `.github`, `infra`, `workspaces-hub` |
+
+Forma: minúsculas, dígitos y guiones simples. Sin el prefijo `pipepath-` (la organización ya es el
+espacio de nombres); la única excepción es `pipepath-workspace`. Sin sufijos que describen la
+tecnología en vez de la cosa: `-app`, `-site`, `-landing`, `-repo`. `-web` queda reservado para la app
+web de un producto (`<producto>-web`): un sitio nunca es `<algo>-web`.
+
+### Crear o renombrar un repo
+
+1. Elige el nombre con la tabla. Si el tipo no está claro, pregunta al dueño antes de tocar infra.
+2. Créalo o renómbralo solo desde `pipepath/infra` (`stacks/github`, regla 13), con plan y apply. Un
+   renombre es una actualización en el mismo recurso: el plan nunca muestra un destroy del repo (usa
+   bloques `moved` cuando cambia la clave).
+3. Mueve sus secretos y variables (`stacks/secrets`, `stacks/github`) en el mismo cambio de infra.
+4. Nunca le des a un repo nuevo el nombre viejo de otro: la redirección de GitHub desde ese nombre deja
+   de funcionar.
+5. Actualiza el workspace: ruta y URL del submódulo, la tabla de repos de `CLAUDE.md`, `README.md`, la
+   hoja de ruta y `knowledge/`. Los logs, planes y specs históricos conservan el nombre viejo.
+6. Actualiza los metadatos que nombran el repo (`repository.url` de cada paquete) en el siguiente release.
+
+### Qué revisa el verificador
+
+La revisión `repo-name` usa `--repo-name` (el check central lo pasa solo). Falla si el nombre rompe la
+forma, lleva el prefijo o un sufijo prohibido, termina en `-workspace` sin carpeta `org-rules/`, o si el
+repo tiene `org-rules/` y `.gitmodules` pero su nombre no termina en `-workspace` (salvo
+`workspaces-hub`). `.github` queda fuera. Sin un `--repo-name` válido avisa (WARN) y no revisa. Si un repo es
+sitio o pieza de producto lo decide la revisión del PR, no el verificador.
 
 ## Excepciones
 
