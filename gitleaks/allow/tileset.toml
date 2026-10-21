@@ -1,4 +1,4 @@
-# Confirmed false positives of brand-app. Each entry is anchored to the exact file(s) AND to a rule, commits or a pattern.
+# Confirmed false positives of tileset. Each entry is anchored to the exact file(s) AND to a rule, commits or a pattern.
 
 [[allowlists]]
 description = "Confirmed false positive: public sha256 digests pinned in a test, not credentials"

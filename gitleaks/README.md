@@ -5,7 +5,7 @@ Configuración del escaneo de secretos que el workflow central corre sobre todos
 ## Qué hay aquí
 
 - `base.toml`: las reglas por defecto de gitleaks, sin nada más.
-- `allow/<repo>.toml`: las excepciones de un repositorio. Hoy existen `workspaces-hub`, `spawn-workspace`, `spawn-control` y `brand-app`.
+- `allow/<repo>.toml`: las excepciones de un repositorio. Hoy existen `workspaces-hub`, `spawn-workspace`, `spawn-control`, `docs` y `tileset`.
 - `empty.gitleaksignore`: un archivo vacío. El workflow borra el `.gitleaksignore` del repositorio que llama y además pasa este archivo en `--gitleaks-ignore-path`, porque gitleaks carga el `.gitleaksignore` del repositorio aunque se le indique otro.
 - `check_allow.py`, `load_check.sh` y `tests/`: las comprobaciones que corre la CI de este repositorio sobre los archivos de `allow/` y sus pruebas.
 

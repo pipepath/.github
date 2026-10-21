@@ -1,0 +1,9 @@
+# Confirmed false positive of docs. Each entry is anchored to the exact file(s) AND to a rule and a pattern.
+
+[[allowlists]]
+description = "Confirmed false positive: a route list read as an API key followed by a secret"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+condition = "AND"
+paths = ['''^tests/unit/content-inventory\.test\.ts$''', '''^docs/superpowers/plans/2026-10-11-pipepath-docs-site-v1\.md$''']
+regexes = ['''(?m)^ *'spawn/reference/cli', 'spawn/reference/api',\n *'spawn/troubleshooting', ''']
