@@ -34,6 +34,14 @@ JOBS_KEY = re.compile(r"""^['"]?jobs['"]?\s*:(.*)$""")
 # A quoted spelling of a key this checker relies on: YAML-equal to the plain key, invisible to KEY_VALUE.
 QUOTED_KEY = re.compile(r"""^['"](?:uses|run|runs-on|needs|continue-on-error|if|steps|with|shell|strategy|env|secrets)['"]\s*:""")
 
+# YAML 1.1 line breaks that this line parser would read as part of one line (for example, inside a comment).
+LINE_SEPARATORS = ("\x85", "\u2028", "\u2029")
+# Values inside `jobs:` that may be a one-line flow mapping (everything else in braces is not modeled).
+FLOW_MAP_KEYS = {"with", "env", "permissions"}
+# A one-line plain or quoted job name; double-quoted names must not use escapes.
+PLAIN_NAME = re.compile(r"""^(?:'(?:[^']|'')*'|"[^"\\]*"|[^\s!&*|>{}\[\]%@`'"#][^#]*)$""")
+CI_WORKFLOW = "ci.yml"
+
 JOB_SAFE_IF = {"always()", "success()", "true"}
 NOT_SET = {"", "false"}
 RESULT_VAR = re.compile(r"^\$\{\{\s*needs\.([\w-]+)\.result\s*\}\}$")
@@ -84,8 +92,22 @@ def _new_job():
 
 
 def _new_step():
-    return {"run": None, "run_block": False, "uses": None, "continue_on_error": None, "if": None, "shell": None,
-            "fetch0": False, "env": {}, "env_flow": False, "dups": [], "keys": set()}
+    return {"run": None, "run_block": False, "run_style": None, "uses": None, "continue_on_error": None, "if": None,
+            "shell": None, "fetch0": False, "env": {}, "env_flow": False, "dups": [], "keys": set()}
+
+
+def _plain_item(body):
+    """True for a sequence item that is plainly a scalar (not a key, tag, anchor, flow or block indicator)."""
+    v = strip_comment(body).strip()
+    return bool(v) and v[0] not in "?:!&*|>{[%@`-" and not re.search(r":(\s|$)", v)
+
+
+def may_name(name, target):
+    """True when a job `name:` (which may contain `${{ }}` expressions) could render as `target`."""
+    parts = re.split(r"\$\{\{.*?\}\}", name.strip())
+    if len(parts) == 1:
+        return name.strip().lower() == target
+    return re.fullmatch(".*".join(re.escape(p) for p in parts), target, re.IGNORECASE | re.DOTALL) is not None
 
 
 def _flag(job, reason):
@@ -161,11 +183,16 @@ def _filter_values(val):
 def parse_workflow(text):
     """Return {jobs, notes, on, on_unmodeled, defaults_shell, env_keys}; notes are lines the parser could not model."""
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    wf_notes = []
+    if any(ch in text for ch in LINE_SEPARATORS):
+        wf_notes.append("contains a Unicode line separator (U+0085, U+2028 or U+2029), which YAML may read as a line "
+                        "break")
     contentful = [len(l) - len(l.lstrip(" ")) for l in lines if l.strip() and not l.lstrip().startswith("#")]
     base = min(contentful) if contentful else 0
     wf = {"jobs": {}, "notes": [], "on": None, "on_unmodeled": False, "defaults_shell": False, "env_keys": set(),
           "env_unmodeled": False}
     jobs, notes = wf["jobs"], wf["notes"]
+    notes.extend(wf_notes)
     cur, in_jobs, section, seen_content, top_keys = None, False, None, False, set()
     job_indent = prop_indent = None
     block_col, block_target, needs_open = None, None, False
@@ -181,6 +208,8 @@ def parse_workflow(text):
                     block_target.append(raw.strip())
                 continue
             block_col = None
+        if "\t" in raw[:len(raw) - len(raw.lstrip(" \t"))] and "indents a line with a tab" not in notes:
+            notes.append("indents a line with a tab")  # outside block scalars, where YAML forbids it
         if raw.lstrip().startswith("#"):
             continue
         line = raw.strip()
@@ -201,6 +230,8 @@ def parse_workflow(text):
             top_keys.add(section)
             if section == "env" and rest:
                 wf["env_unmodeled"] = True  # flow mapping, alias or scalar: its keys are not modeled
+            if section == "defaults" and rest:
+                notes.append("workflow `defaults` is not a block mapping")
             if section == "jobs":
                 in_jobs = True
                 if rest:
@@ -217,10 +248,14 @@ def parse_workflow(text):
             continue
         if not in_jobs:
             km = KEY_VALUE.match(strip_comment(line[2:].lstrip() if line.startswith("- ") else line))
-            if section == "defaults" and km and km.group(1) == "shell":
-                wf["defaults_shell"] = True
+            if section == "defaults":
+                dval = strip_comment(km.group(2) or "").strip() if km else ""
+                if not km or line.startswith("- ") or dval[:1] in ("{", "[", "&", "*", "!", "|", ">"):
+                    notes.append("workflow `defaults` has a line this check cannot model (%r)" % line)
+                elif km.group(1) == "shell":
+                    wf["defaults_shell"] = True
             elif section == "env":
-                if km:
+                if km and not line.startswith("- "):
                     wf["env_keys"].add(km.group(1))
                 else:
                     wf["env_unmodeled"] = True
@@ -262,6 +297,8 @@ def parse_workflow(text):
                 notes.append("cannot model line %r" % line)
                 continue
             cur, prop_indent, needs_open = m.group(1) or m.group(2) or m.group(3), None, False
+            if m.group(2) is not None and "\\" in m.group(2):
+                notes.append("job id uses an escape (%r)" % line)
             step, steps_open, step_indent = None, False, None
             if cur in jobs:
                 notes.append("job %r is defined twice (parsers may pick different definitions)" % cur)
@@ -290,6 +327,14 @@ def parse_workflow(text):
         key_col = indent + (len(line) - len(body))
         m = KEY_VALUE.match(strip_comment(body))
         key, val = (m.group(1), (m.group(2) or "").strip()) if m else (None, "")
+        if not m and not (is_item and _plain_item(body)):
+            _flag(job, "cannot model line %r" % line)
+        if val[:1] == "!":
+            _flag(job, "a value has a YAML tag (%r)" % line)
+        if val[:1] == "{" and not (key in FLOW_MAP_KEYS and _flow_map(val) is not None):
+            _flag(job, "a flow mapping this check cannot model (%r)" % line)
+        if val[:1] == ">":
+            _flag(job, "a folded block scalar (%r)" % line)
         if key:
             job["keys"].add(key)
             if key == "timeout-minutes":
@@ -319,6 +364,8 @@ def parse_workflow(text):
             seen.add(key)
             job["props"].add(key)
             if key == "name":
+                if not PLAIN_NAME.match(val):
+                    _flag(job, "the job name is not a plain one-line scalar (%r)" % line)
                 job["name"] = unquote(val)
         if at_step and key:
             if key in step["keys"]:
@@ -328,7 +375,7 @@ def parse_workflow(text):
             block_col = key_col
             block_target = None
             if key == "run" and at_step:
-                step["run"], step["run_block"] = [], True
+                step["run"], step["run_block"], step["run_style"] = [], True, val
                 block_target = step["run"]
             elif key in ("if", "continue-on-error"):
                 target = step if at_step else job if (indent == prop_indent and not is_item) else None
@@ -401,6 +448,8 @@ def parse_workflow(text):
                 job["if"] = val
             elif key == "strategy":
                 job["strategy"] = True
+    if wf["env_unmodeled"]:
+        notes.append("workflow `env` is not a block mapping of plain keys")
     for job in jobs.values():
         job.pop("_seen", None)
         job.pop("_ro_open", None)
@@ -575,7 +624,8 @@ def _exit_block(lines, head):
 
 
 def _usable_step(step):
-    return step["run_block"] and not _step_hazards(step) and not step["env_flow"] and not step["dups"]
+    return (step["run_block"] and step["run_style"] in ("|", "|-") and not _step_hazards(step)
+            and not step["env_flow"] and not step["dups"])
 
 
 def _area_gate_step(step):
@@ -613,7 +663,8 @@ def _canonical_required_step(step, job):
 
 REQ_FORMS = (
     "(a) no `if:` (or `success()`), so GitHub skips the job, and the check fails, when a need fails; "
-    "(b) `if: always()`, `!cancelled()` or `failure()` plus a step that fails unless every need succeeded: the "
+    "(b) `if: always()`, `${{ !cancelled() }}` or `failure()` plus a `run: |` step that fails unless every need "
+    "succeeded: the "
     "canonical `if [ \"${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') "
     "|| contains(needs.*.result, 'skipped') }}\" = \"true\" ]; then ...; exit 1; fi` block, or the per-need "
     "`ok` form; (c) area-aware: `if: always()`, a needed job named `ci` that has `if: always()` and needs every "
@@ -640,7 +691,7 @@ def _area_problem(job, cond, wf):
     if extra:
         return "the area-aware form allows only %s on the job; found %s" % (
             ", ".join(sorted(AREA_REQUIRED_PROPS)), ", ".join(extra))
-    if job["name"] is not None and job["name"] != "required":
+    if job["name"] is not None and job["name"] != "required":  # its other aliases are reported for every form
         return "the area-aware form keeps the check name `required` (no other `name:`)"
     if job["dups"] or job["runs_on"] != CANONICAL_RUNS_ON:
         return "the area-aware form needs the canonical runs-on and no duplicate keys"
@@ -649,11 +700,9 @@ def _area_problem(job, cond, wf):
     if AREA_GATE not in job["needs"]:
         return "the area-aware form needs the gate job `%s` among the needs" % AREA_GATE
     for other_id, other in jobs.items():
-        if other_id not in ("required", AREA_GATE) and other_id.lower() in ("required", AREA_GATE):
-            return "job id %r differs from `%s` only by case" % (other_id, other_id.lower())
-        name = (other["name"] or "").strip()
-        if "${{" in name or (name.lower() in ("required", AREA_GATE) and name.lower() != other_id):
-            return "job %s would report a second check named `%s` (display name %r)" % (other_id, name.lower(), name)
+        if other_id != AREA_GATE and (other_id.lower() == AREA_GATE or may_name(other["name"] or "", AREA_GATE)):
+            return "job %s would report a second check named `%s` (display name %r)" % (other_id, AREA_GATE,
+                                                                                         other["name"])
     gate = jobs.get(AREA_GATE)
     if (gate is None or gate["unparsed"] or gate["job_uses"] or gate["if"] is None
             or _expr(gate["if"]) != "always()"):
@@ -850,7 +899,7 @@ def check_workflows(root, report, public=True):
                 has_gitleaks = True
             elif problem:
                 gitleaks_problems.append((rel, job_id, problem))
-            if job_id == "required":
+            if job_id == "required" and path.name == CI_WORKFLOW:
                 if job["unparsed"]:
                     pass  # already a runs-on FAIL unless allowlisted; an unmodeled aggregate is never credited
                 else:
@@ -859,7 +908,16 @@ def check_workflows(root, report, public=True):
                         report.add("required-job", "FAIL", rel, "'required' is not a reliable aggregate: %s" % problem)
                     else:
                         has_required = True
-        req = jobs.get("required")
+        for job_id, job in jobs.items():
+            named = job_id.lower() == "required" or may_name(job["name"] or "", "required")
+            if named and path.name != CI_WORKFLOW:
+                report.add("required-job", "FAIL", rel, "job %s: a job named `required` (id or display name) is "
+                           "allowed only in .github/workflows/%s, where the aggregate is checked"
+                           % (job_id, CI_WORKFLOW))
+            elif named and job_id != "required":
+                report.add("required-job", "FAIL", rel, "job %s would report a second check named `required` (id %r, "
+                           "display name %r)" % (job_id, job_id, job["name"]))
+        req = jobs.get("required") if path.name == CI_WORKFLOW else None
         if req and not req["unparsed"]:
             missing = [j for j in jobs if j != "required" and j not in req["needs"]]
             if missing:
@@ -867,8 +925,8 @@ def check_workflows(root, report, public=True):
                            % ", ".join(missing))
     if not has_required:
         report.add("required-job", "FAIL", ".github/workflows",
-                   "no usable job named 'required' (it must exist, be modelable, and take one of the accepted "
-                   "forms: %s)" % REQ_FORMS)
+                   "no usable job named 'required' in .github/workflows/%s (it must exist, be modelable, and take "
+                   "one of the accepted forms: %s)" % (CI_WORKFLOW, REQ_FORMS))
     if not (has_gitleaks or standards_covers):
         report.add("gitleaks", "FAIL", ".github/workflows",
                    "gitleaks is not covered: either keep a valid `.github/workflows/standards.yml` (the central "

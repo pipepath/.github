@@ -44,12 +44,14 @@ todos los repos. El verificador (`verify.py`, en esta carpeta) comprueba la regl
 - **Acciones fijadas:** todo `uses:` no local se fija por SHA de 40 hex **y** lleva al final un
   comentario `# versión` (ejemplo: `actions/checkout@<sha> # v7.0.1`). Quedan exentos `./…` y
   `docker://…@sha256:…`.
-- **Job `required`:** al menos un archivo de workflow define un job llamado `required`, y su `needs`
-  lista todos los demás jobs de ese mismo archivo. No hace falta uno en cada archivo (por ejemplo,
-  `standards.yml` no lo tiene). Para que el agregado no falle abierto se acepta solo una de tres formas:
+- **Job `required`:** vive solo en `.github/workflows/ci.yml` (ni `ci.yaml` ni otro archivo), y su
+  `needs` lista todos los demás jobs de ese archivo. Ningún otro job, en ningún archivo, puede llamarse
+  `required` por id (en ninguna capitalización) ni por `name:`, tampoco con un `name:` con expresiones
+  `${{ }}` que pueda dar `required`: sería un segundo check con ese nombre. Para que el agregado no falle
+  abierto se acepta solo una de tres formas:
   (a) el job no tiene `if:` (o `success()`), de modo que GitHub lo salta, y el check falla, cuando un
-  `needs` falla; o (b) tiene `if: always()` (también `!cancelled()` o `failure()`) **y** un paso cuyo
-  `run: |` es exactamente una de las dos formas canónicas: el bloque
+  `needs` falla; o (b) tiene `if: always()` (también `${{ !cancelled() }}` o `failure()`) **y** un paso
+  cuyo `run: |` (o `|-`; nunca `>`) es exactamente una de las dos formas canónicas: el bloque
   `if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then … exit 1; fi`
   (el de `templates/github/workflows/ci.yml`), o la de spawn-control (una variable de entorno
   `${{ needs.<job>.result }}` por cada `needs`, un `ok=false`, el `if` de evento y de `= "success"` que
@@ -64,8 +66,8 @@ todos los repos. El verificador (`verify.py`, en esta carpeta) comprueba la regl
   job saltado solo pasa porque `ci` lo decidió. Para que nada cambie cómo corre ese paso, en la forma (c)
   `required` tiene un solo paso, el `runs-on` canónico y solo las claves `name` (si existe, `required`),
   `needs`, `if`, `runs-on`, `timeout-minutes` y `steps`; `ci` no es una llamada a un workflow reutilizable
-  ni tiene pasos con `continue-on-error`; ningún otro job se llama `required` o `ci` (ni con otra
-  capitalización ni como `name:`); y el workflow no tiene `defaults.run.shell` ni, en su `env:`,
+  ni tiene pasos con `continue-on-error`; ningún otro job se llama `ci` (ni con otra capitalización ni
+  como `name:`); y el workflow no tiene `defaults.run.shell` ni, en su `env:`,
   `BASH_*`, `ENV`, `PATH`, `LD_*`, `DOCKER_*`, `SHELLOPTS`, `BASHOPTS`, `IFS`, `PS4`, `GLOBIGNORE`,
   `CDPATH`, `CI_RESULT` o nombres que no sean simples. Lo que hacen los pasos de `ci` no se verifica: es
   la decisión del repo. Un `echo ok`, un chequeo solo de `failure` (una
@@ -105,9 +107,17 @@ todos los repos. El verificador (`verify.py`, en esta carpeta) comprueba la regl
   en un paso), un `needs` a sí mismo, a un job que no existe o con ciclo, y un archivo con varios
   documentos YAML son FAIL: GitHub y este analizador podrían leerlos distinto, o GitHub rechazaría el
   workflow.
-- **Lo que el analizador no modela** (job en flow mapping, `runs-on` como lista, anclas o alias, matrices,
-  claves entre comillas, un archivo ilegible o con `jobs:` sin jobs reconocibles) produce **FAIL**, nunca
-  WARN: el check bloquea, así que ante la duda falla. Un job que no se puede modelar solo se acepta si su
+- **Lo que el analizador no modela** produce **FAIL**, nunca WARN. Dentro de `jobs:`, toda línea que no
+  sea contenido de un bloque `|`, un ítem de `needs`, un escalar simple en una lista o un `clave: valor`
+  con clave simple (`[A-Za-z0-9_.-]`, sin espacio antes de `:`) hace que el job no se pueda modelar: claves
+  entre comillas o con escapes, `clave : valor`, claves complejas `?`, etiquetas `!`/`!!` (también
+  `if: !cancelled()` sin `${{ }}`), anclas, alias y claves de mezcla `<<`, bloques plegados `>`, flow
+  mappings salvo en `with`, `env` y `permissions`, continuaciones de un escalar en otra línea, un `name:`
+  del job que no sea un escalar de una línea sin escapes, matrices y `runs-on` como lista. Un id de job con
+  escapes, un tab en la indentación, un separador de línea Unicode (U+0085, U+2028, U+2029) en cualquier
+  parte del archivo, y un `defaults:` o `env:` del workflow que no sea un mapping de bloque con claves
+  simples hacen que no se pueda modelar el archivo entero, igual que uno ilegible o con `jobs:` sin jobs
+  reconocibles: el check bloquea, así que ante la duda falla. Un job que no se puede modelar solo se acepta si su
   clave exacta `<archivo>/<job>` figura en `.github/standards-allow.yml` con motivo; reescribirlo en
   estilo de bloque es la salida preferida.
 
