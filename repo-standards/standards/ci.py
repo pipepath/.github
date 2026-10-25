@@ -43,6 +43,13 @@ REQ_CONTAINS = ("if [ \"${{ contains(needs.*.result, 'failure') || contains(need
 REQ_ECHO = re.compile(r'echo "(?!.*\$\()[^"`\\]*"( >&2)?')
 REQ_ENV_LINE = re.compile(r'if \[ "\$(\w+)" = "pull_request" \] \|\| \[ "\$(\w+)" = "push" \]; then')
 REQ_ALL_OK = re.compile(r'if (\[ "\$\w+" = "success" \](?: && \[ "\$\w+" = "success" \])*); then ok=true; fi')
+# Form 3, the area-aware aggregate: needs may be skipped on purpose, so the expression leaves `skipped` out and the
+# step also fails unless the job named `ci` (the area-aware gate, itself `if: always()`) succeeded.
+AREA_GATE = "ci"
+AREA_GATE_VAR = "CI_RESULT"
+REQ_AREA_CONTAINS = ("if [ \"${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}\" "
+                     "= \"true\" ]; then")
+REQ_AREA_GATE = 'if [ "$%s" != "success" ]; then' % AREA_GATE_VAR
 
 
 def strip_comment(text):
@@ -548,16 +555,36 @@ def _needs_vars(step, needs):
     return out if sorted(out.values()) == sorted(needs) else None
 
 
+def _exit_block(lines, head):
+    """Lines after a `head` line, an optional echo, `exit 1` and `fi`; None when they do not start that way."""
+    if lines[:1] != [head]:
+        return None
+    rest = lines[1:]
+    if rest and REQ_ECHO.fullmatch(rest[0]):
+        rest = rest[1:]
+    return rest[2:] if rest[:2] == ["exit 1", "fi"] else None
+
+
+def _usable_step(step):
+    return step["run_block"] and not _step_hazards(step) and not step["env_flow"] and not step["dups"]
+
+
+def _area_gate_step(step):
+    """True when the step's `run:` is exactly the area-aware form (form 3): the failure/cancelled block, then the
+    block that fails unless `$CI_RESULT` (the step's only env var, `${{ needs.ci.result }}`) is `success`."""
+    if not _usable_step(step) or step["env"] != {AREA_GATE_VAR: "${{ needs.%s.result }}" % AREA_GATE}:
+        return False
+    rest = _exit_block(step["run"], REQ_AREA_CONTAINS)
+    return rest is not None and _exit_block(rest, REQ_AREA_GATE) == []
+
+
 def _canonical_required_step(step, job):
     """True when the step's `run:` is one of the two canonical forms (exact lines, nothing else)."""
-    if not step["run_block"] or _step_hazards(step) or step["env_flow"] or step["dups"]:
+    if not _usable_step(step):
         return False
     lines = step["run"]
     if lines[:1] == [REQ_CONTAINS]:
-        rest = lines[1:]
-        if rest and REQ_ECHO.fullmatch(rest[0]):
-            rest = rest[1:]
-        return rest == ["exit 1", "fi"] and not step["env"]
+        return _exit_block(lines, REQ_CONTAINS) == [] and not step["env"]
     # Form 2 (spawn-control): per-need env vars, an `ok` flag, and a final `exit 1` unless every need succeeded.
     vars_ = _needs_vars(step, job["needs"])
     if not vars_ or not lines or not REQ_ECHO.fullmatch(lines[0]):
@@ -575,7 +602,18 @@ def _canonical_required_step(step, job):
             and lines[7] == "exit 1" and lines[8] == "fi")
 
 
-def _required_problem(job):
+REQ_FORMS = (
+    "(a) no `if:` (or `success()`), so GitHub skips the job, and the check fails, when a need fails; "
+    "(b) `if: always()`, `!cancelled()` or `failure()` plus a step that fails unless every need succeeded: the "
+    "canonical `if [ \"${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') "
+    "|| contains(needs.*.result, 'skipped') }}\" = \"true\" ]; then ...; exit 1; fi` block, or the per-need "
+    "`ok` form; (c) area-aware: `if: always()`, a needed job named `ci` that has `if: always()` and needs every "
+    "job but `required`, and a step with only `env: CI_RESULT: ${{ needs.ci.result }}` that runs the same block "
+    "without `skipped` and then "
+    "`if [ \"$CI_RESULT\" != \"success\" ]; then ...; exit 1; fi`")
+
+
+def _required_problem(job, jobs):
     problem = _job_hazards(job)
     if problem:
         return problem
@@ -583,13 +621,28 @@ def _required_problem(job):
     if cond is None or cond in JOB_SAFE_IF - {"always()"}:
         return None  # GitHub skips the job (the check fails) when a need fails
     if cond not in ("always()", "!cancelled()", "failure()"):
-        return "the job has an `if:` that can skip it (only none, always(), !cancelled() or failure())"
+        return "the job has an `if:` that can skip it; accepted forms: %s" % REQ_FORMS
     if any(_canonical_required_step(s, job) for s in job["steps"]):
         return None
-    return ("with `if: %s` the job runs even when a needed job failed, so it needs a step that fails then: use "
-            "the canonical `if [ \"${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') "
-            "|| contains(needs.*.result, 'skipped') }}\" = \"true\" ]; then ...; exit 1; fi` block, or remove the `if:`"
-            % cond)
+    if any(_area_gate_step(s) for s in job["steps"]):
+        gate = jobs.get(AREA_GATE)
+        if cond != "always()":
+            return "the area-aware form needs `if: always()` on the job, not `if: %s`" % cond
+        if AREA_GATE not in job["needs"]:
+            return "the area-aware form needs the gate job `%s` among the needs" % AREA_GATE
+        if gate is None or gate["unparsed"] or gate["if"] is None or _expr(gate["if"]) != "always()":
+            return ("the area-aware form needs the job `%s` to have `if: always()`, or a skipped or failed "
+                    "upstream job would skip the gate" % AREA_GATE)
+        problem = _job_hazards(gate)
+        if problem:
+            return "the area-aware gate `%s` must not be softened: %s" % (AREA_GATE, problem)
+        unjudged = [j for j in jobs if j not in ("required", AREA_GATE) and j not in gate["needs"]]
+        if unjudged:
+            return ("the area-aware gate `%s` must need every job but `required`, or a skipped job it does not "
+                    "judge passes; missing: %s" % (AREA_GATE, ", ".join(unjudged)))
+        return None
+    return ("with `if: %s` the job runs even when a needed job failed, so it needs a step that fails then; "
+            "accepted forms: %s" % (cond, REQ_FORMS))
 
 
 def _needs_problems(jobs):
@@ -753,7 +806,7 @@ def check_workflows(root, report, public=True):
                 if job["unparsed"]:
                     pass  # already a runs-on FAIL unless allowlisted; an unmodeled aggregate is never credited
                 else:
-                    problem = _required_problem(job)
+                    problem = _required_problem(job, jobs)
                     if problem:
                         report.add("required-job", "FAIL", rel, "'required' is not a reliable aggregate: %s" % problem)
                     else:
@@ -766,8 +819,8 @@ def check_workflows(root, report, public=True):
                            % ", ".join(missing))
     if not has_required:
         report.add("required-job", "FAIL", ".github/workflows",
-                   "no usable job named 'required' (it must exist, be modelable, and either have no `if:` or "
-                   "run the canonical check of the needed results)")
+                   "no usable job named 'required' (it must exist, be modelable, and take one of the accepted "
+                   "forms: %s)" % REQ_FORMS)
     if not (has_gitleaks or standards_covers):
         report.add("gitleaks", "FAIL", ".github/workflows",
                    "gitleaks is not covered: either keep a valid `.github/workflows/standards.yml` (the central "
