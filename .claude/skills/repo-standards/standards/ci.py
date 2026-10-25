@@ -80,7 +80,7 @@ def _value(line):
 def _new_job():
     return {"runs_on": None, "uses": [], "steps": [], "needs": [], "unparsed": False, "job_uses": None,
             "reason": "", "continue_on_error": None, "if": None, "strategy": False,
-            "keys": set(), "timeouts": [], "dups": [], "flow": []}
+            "keys": set(), "timeouts": [], "dups": [], "flow": [], "props": set(), "name": None}
 
 
 def _new_step():
@@ -163,7 +163,8 @@ def parse_workflow(text):
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     contentful = [len(l) - len(l.lstrip(" ")) for l in lines if l.strip() and not l.lstrip().startswith("#")]
     base = min(contentful) if contentful else 0
-    wf = {"jobs": {}, "notes": [], "on": None, "on_unmodeled": False, "defaults_shell": False, "env_keys": set()}
+    wf = {"jobs": {}, "notes": [], "on": None, "on_unmodeled": False, "defaults_shell": False, "env_keys": set(),
+          "env_unmodeled": False}
     jobs, notes = wf["jobs"], wf["notes"]
     cur, in_jobs, section, seen_content, top_keys = None, False, None, False, set()
     job_indent = prop_indent = None
@@ -198,6 +199,8 @@ def parse_workflow(text):
             if section in top_keys:
                 notes.append("duplicate top-level key %r (parsers may pick different values)" % section)
             top_keys.add(section)
+            if section == "env" and rest:
+                wf["env_unmodeled"] = True  # flow mapping, alias or scalar: its keys are not modeled
             if section == "jobs":
                 in_jobs = True
                 if rest:
@@ -216,8 +219,11 @@ def parse_workflow(text):
             km = KEY_VALUE.match(strip_comment(line[2:].lstrip() if line.startswith("- ") else line))
             if section == "defaults" and km and km.group(1) == "shell":
                 wf["defaults_shell"] = True
-            elif section == "env" and km:
-                wf["env_keys"].add(km.group(1))
+            elif section == "env":
+                if km:
+                    wf["env_keys"].add(km.group(1))
+                else:
+                    wf["env_unmodeled"] = True
             elif section == "on":
                 if on_ind is None:
                     on_ind = indent
@@ -311,6 +317,9 @@ def parse_workflow(text):
             if key in seen:
                 job["dups"].append(key)
             seen.add(key)
+            job["props"].add(key)
+            if key == "name":
+                job["name"] = unquote(val)
         if at_step and key:
             if key in step["keys"]:
                 step["dups"].append(key)
@@ -608,12 +617,66 @@ REQ_FORMS = (
     "canonical `if [ \"${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') "
     "|| contains(needs.*.result, 'skipped') }}\" = \"true\" ]; then ...; exit 1; fi` block, or the per-need "
     "`ok` form; (c) area-aware: `if: always()`, a needed job named `ci` that has `if: always()` and needs every "
-    "job but `required`, and a step with only `env: CI_RESULT: ${{ needs.ci.result }}` that runs the same block "
+    "job but `required`, and a single step (job keys: name, needs, if, runs-on, timeout-minutes, steps) with only "
+    "`env: CI_RESULT: ${{ needs.ci.result }}` that runs the same block "
     "without `skipped` and then "
     "`if [ \"$CI_RESULT\" != \"success\" ]; then ...; exit 1; fi`")
 
 
-def _required_problem(job, jobs):
+# Form (c) is an exact allowlist: the `required` job may only carry these keys, and nothing in the workflow may
+# change how its single step runs (shell, runner, environment) or add another check named `required` or `ci`.
+AREA_REQUIRED_PROPS = {"name", "needs", "if", "runs-on", "timeout-minutes", "steps"}
+AREA_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+AREA_ENV_DENY = re.compile(r"^(BASH_|BASHOPTS$|SHELLOPTS$|ENV$|PATH$|IFS$|PS4$|GLOBIGNORE$|CDPATH$|LD_|DOCKER_|%s$)"
+                           % AREA_GATE_VAR)
+
+
+def _area_problem(job, cond, wf):
+    """None when `required` (whose step is the form (c) step) and its workflow make form (c) fail closed."""
+    jobs = wf["jobs"]
+    if cond != "always()":
+        return "the area-aware form needs `if: always()` on the job, not `if: %s`" % cond
+    extra = sorted(job["props"] - AREA_REQUIRED_PROPS)
+    if extra:
+        return "the area-aware form allows only %s on the job; found %s" % (
+            ", ".join(sorted(AREA_REQUIRED_PROPS)), ", ".join(extra))
+    if job["name"] is not None and job["name"] != "required":
+        return "the area-aware form keeps the check name `required` (no other `name:`)"
+    if job["dups"] or job["runs_on"] != CANONICAL_RUNS_ON:
+        return "the area-aware form needs the canonical runs-on and no duplicate keys"
+    if len(job["steps"]) != 1:
+        return "the area-aware form allows exactly one step (another step could change how the check runs)"
+    if AREA_GATE not in job["needs"]:
+        return "the area-aware form needs the gate job `%s` among the needs" % AREA_GATE
+    for other_id, other in jobs.items():
+        if other_id not in ("required", AREA_GATE) and other_id.lower() in ("required", AREA_GATE):
+            return "job id %r differs from `%s` only by case" % (other_id, other_id.lower())
+        name = (other["name"] or "").strip()
+        if "${{" in name or (name.lower() in ("required", AREA_GATE) and name.lower() != other_id):
+            return "job %s would report a second check named `%s` (display name %r)" % (other_id, name.lower(), name)
+    gate = jobs.get(AREA_GATE)
+    if (gate is None or gate["unparsed"] or gate["job_uses"] or gate["if"] is None
+            or _expr(gate["if"]) != "always()"):
+        return ("the area-aware form needs the job `%s` to run steps with `if: always()`, or a skipped or failed "
+                "upstream job would skip the gate" % AREA_GATE)
+    problem = _job_hazards(gate) or next(
+        ("a step has continue-on-error" for st in gate["steps"] if _is_set(st["continue_on_error"])), None)
+    if problem:
+        return "the area-aware gate `%s` must not be softened: %s" % (AREA_GATE, problem)
+    unjudged = [j for j in jobs if j not in ("required", AREA_GATE) and j not in gate["needs"]]
+    if unjudged:
+        return ("the area-aware gate `%s` must need every job but `required`, or a skipped job it does not "
+                "judge passes; missing: %s" % (AREA_GATE, ", ".join(unjudged)))
+    if wf["defaults_shell"]:
+        return "the area-aware form does not allow a workflow `defaults.run.shell`"
+    bad = sorted(k for k in wf["env_keys"] if not AREA_ENV_NAME.match(k) or AREA_ENV_DENY.match(k))
+    if wf["env_unmodeled"] or bad:
+        return ("the workflow `env:` must be a block mapping of plain names that cannot change how the step runs; "
+                "found %s" % (", ".join(bad) or "an unmodeled `env:`"))
+    return None
+
+
+def _required_problem(job, wf):
     problem = _job_hazards(job)
     if problem:
         return problem
@@ -625,22 +688,7 @@ def _required_problem(job, jobs):
     if any(_canonical_required_step(s, job) for s in job["steps"]):
         return None
     if any(_area_gate_step(s) for s in job["steps"]):
-        gate = jobs.get(AREA_GATE)
-        if cond != "always()":
-            return "the area-aware form needs `if: always()` on the job, not `if: %s`" % cond
-        if AREA_GATE not in job["needs"]:
-            return "the area-aware form needs the gate job `%s` among the needs" % AREA_GATE
-        if gate is None or gate["unparsed"] or gate["if"] is None or _expr(gate["if"]) != "always()":
-            return ("the area-aware form needs the job `%s` to have `if: always()`, or a skipped or failed "
-                    "upstream job would skip the gate" % AREA_GATE)
-        problem = _job_hazards(gate)
-        if problem:
-            return "the area-aware gate `%s` must not be softened: %s" % (AREA_GATE, problem)
-        unjudged = [j for j in jobs if j not in ("required", AREA_GATE) and j not in gate["needs"]]
-        if unjudged:
-            return ("the area-aware gate `%s` must need every job but `required`, or a skipped job it does not "
-                    "judge passes; missing: %s" % (AREA_GATE, ", ".join(unjudged)))
-        return None
+        return _area_problem(job, cond, wf)
     return ("with `if: %s` the job runs even when a needed job failed, so it needs a step that fails then; "
             "accepted forms: %s" % (cond, REQ_FORMS))
 
@@ -806,7 +854,7 @@ def check_workflows(root, report, public=True):
                 if job["unparsed"]:
                     pass  # already a runs-on FAIL unless allowlisted; an unmodeled aggregate is never credited
                 else:
-                    problem = _required_problem(job, jobs)
+                    problem = _required_problem(job, wf)
                     if problem:
                         report.add("required-job", "FAIL", rel, "'required' is not a reliable aggregate: %s" % problem)
                     else:

@@ -61,7 +61,14 @@ todos los repos. El verificador (`verify.py`, en esta carpeta) comprueba la regl
   `run: |` es exactamente
   `if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then … exit 1; fi`
   seguido de `if [ "$CI_RESULT" != "success" ]; then … exit 1; fi` (cada `…` es un `echo` opcional). Así un
-  job saltado solo pasa porque `ci` lo decidió. Un `echo ok`, un chequeo solo de `failure` (una
+  job saltado solo pasa porque `ci` lo decidió. Para que nada cambie cómo corre ese paso, en la forma (c)
+  `required` tiene un solo paso, el `runs-on` canónico y solo las claves `name` (si existe, `required`),
+  `needs`, `if`, `runs-on`, `timeout-minutes` y `steps`; `ci` no es una llamada a un workflow reutilizable
+  ni tiene pasos con `continue-on-error`; ningún otro job se llama `required` o `ci` (ni con otra
+  capitalización ni como `name:`); y el workflow no tiene `defaults.run.shell` ni, en su `env:`,
+  `BASH_*`, `ENV`, `PATH`, `LD_*`, `DOCKER_*`, `SHELLOPTS`, `BASHOPTS`, `IFS`, `PS4`, `GLOBIGNORE`,
+  `CDPATH`, `CI_RESULT` o nombres que no sean simples. Lo que hacen los pasos de `ci` no se verifica: es
+  la decisión del repo. Un `echo ok`, un chequeo solo de `failure` (una
   cancelación se cuela), un `|| true` o cualquier otra forma es FAIL. El paso y el job no pueden tener
   `continue-on-error`, `shell:`, `working-directory`, `timeout-minutes: 0`, `strategy`, ni un `if:` que no
   sea los anteriores. Sin `if:` el job vuelve a ser la forma (a).
