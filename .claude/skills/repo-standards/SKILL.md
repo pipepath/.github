@@ -44,19 +44,36 @@ todos los repos. El verificador (`verify.py`, en esta carpeta) comprueba la regl
 - **Acciones fijadas:** todo `uses:` no local se fija por SHA de 40 hex **y** lleva al final un
   comentario `# versión` (ejemplo: `actions/checkout@<sha> # v7.0.1`). Quedan exentos `./…` y
   `docker://…@sha256:…`.
-- **Job `required`:** al menos un archivo de workflow define un job llamado `required`, y su `needs`
-  lista todos los demás jobs de ese mismo archivo. No hace falta uno en cada archivo (por ejemplo,
-  `standards.yml` no lo tiene). Para que el agregado no falle abierto se acepta solo una de dos formas:
+- **Job `required`:** vive solo en `.github/workflows/ci.yml` (ni `ci.yaml` ni otro archivo), y su
+  `needs` lista todos los demás jobs de ese archivo. Ningún otro job, en ningún archivo, puede llamarse
+  `required` por id (en ninguna capitalización) ni por `name:`, tampoco con un `name:` con expresiones
+  `${{ }}` que pueda dar `required`: sería un segundo check con ese nombre. Para que el agregado no falle
+  abierto se acepta solo una de tres formas:
   (a) el job no tiene `if:` (o `success()`), de modo que GitHub lo salta, y el check falla, cuando un
-  `needs` falla; o (b) tiene `if: always()` (también `!cancelled()` o `failure()`) **y** un paso cuyo
-  `run: |` es exactamente una de las dos formas canónicas: el bloque
+  `needs` falla; o (b) tiene `if: always()` (también `${{ !cancelled() }}` o `failure()`) **y** un paso
+  cuyo `run: |` (o `|-`; nunca `>`) es exactamente una de las dos formas canónicas: el bloque
   `if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then … exit 1; fi`
   (el de `templates/github/workflows/ci.yml`), o la de spawn-control (una variable de entorno
   `${{ needs.<job>.result }}` por cada `needs`, un `ok=false`, el `if` de evento y de `= "success"` que
-  pone `ok=true`, y un `exit 1` final si `ok` no es `true`). Un `echo ok`, un chequeo solo de `failure`
-  (una cancelación se cuela), un `|| true` o cualquier otra forma es FAIL. El paso y el job no pueden
-  tener `continue-on-error`, `shell:`, `working-directory`, `timeout-minutes: 0`, `strategy`, ni un `if:`
-  que no sea los anteriores.
+  pone `ok=true`, y un `exit 1` final si `ok` no es `true`); o (c) **agregado por áreas**, para un repo
+  que salta jobs a propósito según el área que cambió (por ejemplo `infra`): `required` tiene
+  `if: always()` (solo ese) y necesita a un job llamado `ci`, la compuerta por áreas, que tiene a su vez
+  `if: always()`, necesita a todos los demás jobs salvo `required` y no tiene `continue-on-error` ni
+  `strategy`. El paso de `required` tiene como único `env` `CI_RESULT: ${{ needs.ci.result }}` y su
+  `run: |` es exactamente
+  `if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then … exit 1; fi`
+  seguido de `if [ "$CI_RESULT" != "success" ]; then … exit 1; fi` (cada `…` es un `echo` opcional). Así un
+  job saltado solo pasa porque `ci` lo decidió. Para que nada cambie cómo corre ese paso, en la forma (c)
+  `required` tiene un solo paso, el `runs-on` canónico y solo las claves `name` (si existe, `required`),
+  `needs`, `if`, `runs-on`, `timeout-minutes` y `steps`; `ci` no es una llamada a un workflow reutilizable
+  ni tiene pasos con `continue-on-error`; ningún otro job se llama `ci` (ni con otra capitalización ni
+  como `name:`); y el workflow no tiene `defaults.run.shell` ni, en su `env:`,
+  `BASH_*`, `ENV`, `PATH`, `LD_*`, `DOCKER_*`, `SHELLOPTS`, `BASHOPTS`, `IFS`, `PS4`, `GLOBIGNORE`,
+  `CDPATH`, `CI_RESULT` o nombres que no sean simples. Lo que hacen los pasos de `ci` no se verifica: es
+  la decisión del repo. Un `echo ok`, un chequeo solo de `failure` (una
+  cancelación se cuela), un `|| true` o cualquier otra forma es FAIL. El paso y el job no pueden tener
+  `continue-on-error`, `shell:`, `working-directory`, `timeout-minutes: 0`, `strategy`, ni un `if:` que no
+  sea los anteriores. Sin `if:` el job vuelve a ser la forma (a).
 - **gitleaks:** queda cubierto de una de dos maneras. (1) **Estructural:** `.github/workflows/standards.yml`
   llama al workflow central, que corre gitleaks con la imagen fijada por digest sobre el historial
   completo del repo que llama (`fetch-depth: 0`, `persist-credentials: false`) con código que el repo no
@@ -90,9 +107,17 @@ todos los repos. El verificador (`verify.py`, en esta carpeta) comprueba la regl
   en un paso), un `needs` a sí mismo, a un job que no existe o con ciclo, y un archivo con varios
   documentos YAML son FAIL: GitHub y este analizador podrían leerlos distinto, o GitHub rechazaría el
   workflow.
-- **Lo que el analizador no modela** (job en flow mapping, `runs-on` como lista, anclas o alias, matrices,
-  claves entre comillas, un archivo ilegible o con `jobs:` sin jobs reconocibles) produce **FAIL**, nunca
-  WARN: el check bloquea, así que ante la duda falla. Un job que no se puede modelar solo se acepta si su
+- **Lo que el analizador no modela** produce **FAIL**, nunca WARN. Dentro de `jobs:`, toda línea que no
+  sea contenido de un bloque `|`, un ítem de `needs`, un escalar simple en una lista o un `clave: valor`
+  con clave simple (`[A-Za-z0-9_.-]`, sin espacio antes de `:`) hace que el job no se pueda modelar: claves
+  entre comillas o con escapes, `clave : valor`, claves complejas `?`, etiquetas `!`/`!!` (también
+  `if: !cancelled()` sin `${{ }}`), anclas, alias y claves de mezcla `<<`, bloques plegados `>`, flow
+  mappings salvo en `with`, `env` y `permissions`, continuaciones de un escalar en otra línea, un `name:`
+  del job que no sea un escalar de una línea sin escapes, matrices y `runs-on` como lista. Un id de job con
+  escapes, un tab en la indentación, un separador de línea Unicode (U+0085, U+2028, U+2029) en cualquier
+  parte del archivo, y un `defaults:` o `env:` del workflow que no sea un mapping de bloque con claves
+  simples hacen que no se pueda modelar el archivo entero, igual que uno ilegible o con `jobs:` sin jobs
+  reconocibles: el check bloquea, así que ante la duda falla. Un job que no se puede modelar solo se acepta si su
   clave exacta `<archivo>/<job>` figura en `.github/standards-allow.yml` con motivo; reescribirlo en
   estilo de bloque es la salida preferida.
 
@@ -181,9 +206,12 @@ El nombre dice qué es el repo sin abrirlo. Se elige con esta tabla antes de cre
 |---|---|---|
 | Sitio (sirve un host) | el del host: el subdominio, o `home` para el dominio raíz | `home` (pipepath.com), `brand` (brand.pipepath.com), `docs` (docs.pipepath.com) |
 | Pieza de un producto | `<producto>-<pieza>` | `spawn-agent`, `spawn-relay`, `spawn-web` (la app web del producto) |
+| Servicio de API de la plataforma | `<namespace>-api`, por su espacio de rutas en `api.pipepath.com` | `waitlist-api` (`/waitlist/v1/*`), `auth-api` (`/auth/v1/*`) |
 | Framework o librería compartida | un nombre propio, nunca una palabra de tipo | `tileset` (el sistema de diseño) |
 | Workspace | `<ámbito>-workspace` | `pipepath-workspace`, `spawn-workspace` |
 | Meta de la organización | el de GitHub o su función | `.github`, `infra`, `workspaces-hub` |
+
+La API de un producto no es un servicio de plataforma: vive en su componente (`spawn-control` sirve `/spawn/v1/*`).
 
 Forma: minúsculas, dígitos y guiones simples. Sin el prefijo `pipepath-` (la organización ya es el
 espacio de nombres); la única excepción es `pipepath-workspace`. Sin sufijos que describen la
