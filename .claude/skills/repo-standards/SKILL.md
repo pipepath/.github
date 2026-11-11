@@ -121,13 +121,29 @@ todos los repos. El verificador (`verify.py`, en esta carpeta) comprueba la regl
   clave exacta `<archivo>/<job>` figura en `.github/standards-allow.yml` con motivo; reescribirlo en
   estilo de bloque es la salida preferida.
 
+### Ficha del catálogo
+
+Cada repo se describe en una ficha de catálogo: `catalog.mdoc` en la raíz, o uno o más `catalog/*.mdoc`
+(no cuentan subcarpetas ni otras extensiones). Es un archivo Markdoc que abre con un bloque de frontmatter
+entre líneas `---`.
+
+- Campos obligatorios, de una sola línea y no vacíos: `name`, `kind`, `summary`, `product`, `status`,
+  `owner` y `repo`.
+- `kind` es uno de `api`, `service`, `site`, `package`, `resource`, `doc`. Con `kind: api` también es
+  obligatorio `openapi`.
+- `status` es uno de `production`, `building`, `experimental`, `retired`. Los valores distinguen mayúsculas.
+- `used_by` está prohibido: el catálogo lo calcula.
+- Quedan exentos `.github`, `workspaces-hub` y los repos `*-workspace`.
+- Fase actual: aviso. Falta de ficha se informa como WARN; pasará a obligatorio (FAIL).
+- El verificador solo revisa lo mínimo; la validación completa la hace el build del catálogo.
+
 ### Plantilla de PR
 
 `.github/pull_request_template.md` con las secciones `## Qué cambia`, `## Cómo se probó` y `## Spec`.
 
 ## Cómo aplicarlo a un repo
 
-1. Copia las plantillas: `templates/README.md` a `README.md`; `templates/docs/README.md` y
+1. Copia las plantillas: `templates/catalog.mdoc` a `catalog.mdoc`; `templates/README.md` a `README.md`; `templates/docs/README.md` y
    `templates/docs/glosario.md` a `docs/`; `templates/github/pull_request_template.md` a `.github/`;
    `templates/github/workflows/standards.yml` y `templates/github/workflows/ci.yml` a `.github/workflows/`. Para cada componente con README
    propio, usa `templates/component-README.md`.
