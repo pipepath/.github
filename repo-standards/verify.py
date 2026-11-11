@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from standards import ci, docs, naming  # noqa: E402
+from standards import catalog, ci, docs, naming  # noqa: E402
 from standards.report import Report  # noqa: E402
 
 CHECKS = [docs.check_files, docs.check_lengths, docs.check_first_line, docs.check_docs_map, docs.check_links,
@@ -33,6 +33,7 @@ def run(root, version=None, repo_private=None, central_gitleaks=None, repo_name=
         else:
             check(root, report)
     naming.check_repo_name(root, report, repo_name)
+    catalog.check_catalog(root, report, repo_name)
     ci.check_skill_version(root, report, version)
     return report
 
