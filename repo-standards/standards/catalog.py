@@ -9,7 +9,7 @@ import re
 from standards.ci import REPO_NAME
 
 # Phase switch: False reports a missing entry as a warning, True as a failure.
-CATALOG_REQUIRED = False
+CATALOG_REQUIRED = True
 
 KINDS = ("api", "service", "site", "package", "resource", "doc")
 STATUSES = ("production", "building", "experimental", "retired")
@@ -21,7 +21,7 @@ EXEMPT_SUFFIX = "-workspace"
 KEY_LINE = re.compile(r"([a-z_][a-z0-9_]*):(?:[ \t]+(.*))?")
 QUOTED = re.compile(r"""("[^"]*"|'[^']*')[ \t]*(?:#.*)?""")
 BLOCK_SCALAR = re.compile(r"[|>][+-]?[0-9]?[+-]?")
-MISSING_MESSAGE = "no catalog entry (catalog.mdoc or catalog/*.mdoc); it will become required"
+MISSING_MESSAGE = "no catalog entry: add catalog.mdoc or catalog/*.mdoc"
 
 
 def entry_files(root):

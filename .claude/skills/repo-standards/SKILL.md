@@ -134,7 +134,7 @@ entre líneas `---`.
 - `status` es uno de `production`, `building`, `experimental`, `retired`. Los valores distinguen mayúsculas.
 - `used_by` está prohibido: el catálogo lo calcula.
 - Quedan exentos `.github`, `workspaces-hub` y los repos `*-workspace`.
-- Fase actual: aviso. Falta de ficha se informa como WARN; pasará a obligatorio (FAIL).
+- Fase actual: obligatoria. Falta de ficha se informa como FAIL.
 - El verificador solo revisa lo mínimo; la validación completa la hace el build del catálogo.
 
 ### Plantilla de PR
