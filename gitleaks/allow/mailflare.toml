@@ -1,0 +1,15 @@
+# Confirmed false positives of mailflare. Each entry is anchored to the exact file(s) AND to a rule, commits or a pattern.
+
+[[allowlists]]
+description = "Confirmed false positive: public WebAuthn authenticator AAGUIDs mapped to display names, not credentials"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^src/components/settings/passkey-settings-utils\.ts$''']
+regexes = ['''^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$''']
+
+[[allowlists]]
+description = "Confirmed false positive: a fixed fake key used as a test fixture, not a credential"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^tests/api-key-sha256\.test\.mjs$''']
+regexes = ['''^abcdefghij123456$''']
